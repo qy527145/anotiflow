@@ -1,12 +1,12 @@
 [project]
 name = "anotiflow"
-version = "0.1.1"
+version = "0.1.2"
 description = "可扩展的任务调度通知框架：触发器 + 行为插件 + 事件总线，TOML 配置驱动"
 readme = "README.md"
 authors = [
     { name = "wmymz", email = "wmymz@icloud.com" }
 ]
-requires-python = ">=3.6"
+requires-python = ">=3.8"
 dependencies = [
     "schedule>=1.2",
     "ipush>=0.4",

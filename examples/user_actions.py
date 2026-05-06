@@ -5,8 +5,10 @@
     type = "custom"
     path = "examples.user_actions.check_stock_price"
 
-约定的函数签名: fn(context: dict) -> None
-context 字段见框架文档 / loader.py 顶部说明。
+函数签名: fn(context: dict) -> None
+其中 context 提供两个命名空间根对象（详见 loader.py 顶部说明）:
+    context["task"]     当前 Task 实例   - .name / .config[xxx]
+    context["trigger"]  命中触发器实例    - .config[xxx] / .fired_at / .payload[xxx] / .kind
 """
 
 from __future__ import annotations
@@ -19,22 +21,30 @@ from anotiflow.core.event_bus import bus
 
 
 def check_stock_price(context: dict) -> None:
-    """模拟股价检查：随机生成一个价格，超过阈值就广播 stock.high 事件。
+    """模拟股价检查：从 task.config 读业务参数（symbol/threshold），超过阈值就广播事件。"""
+    task = context["task"]
+    trigger = context["trigger"]
+    symbol = task.config.get("symbol", "AAPL")
+    threshold = float(task.config.get("threshold", 100.0))
 
-    演示了如何读取 context 字段 + 通过 EventBus 串联事件。
-    """
-    task_name = context["task_name"]
-    fired_at = context["fired_at"]
     price = round(random.uniform(95.0, 110.0), 2)
-    threshold = 100.0
-    logger.info(f"[user] ({task_name} @ {fired_at}) check_stock_price: AAPL={price} (threshold={threshold})")
+    logger.info(
+        f"[user] ({task.name} via {trigger.config['name']} @ {trigger.fired_at}) "
+        f"{symbol}={price} threshold={threshold}"
+    )
     if price > threshold:
         bus.publish(
             "stock.high",
-            {"symbol": "AAPL", "price": price, "threshold": threshold, "checked_at": fired_at},
+            {"symbol": symbol, "price": price, "threshold": threshold, "checked_at": trigger.fired_at},
         )
 
 
 def print_context(context: dict) -> None:
-    """调试用：打印所有 context 字段，直观展示行为能拿到哪些信息。"""
-    logger.info(f"[user] print_context: {context!r}")
+    """调试用：直观展示行为能拿到哪些信息。"""
+    task = context["task"]
+    trigger = context["trigger"]
+    logger.info(
+        f"[user] print_context: task={task.name!r} task.config={task.config!r} "
+        f"trigger={trigger.config['name']!r} trigger.config={trigger.config!r} "
+        f"fired_at={trigger.fired_at!r} payload={trigger.payload!r}"
+    )

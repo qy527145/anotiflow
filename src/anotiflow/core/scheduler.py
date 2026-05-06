@@ -1,18 +1,22 @@
 """主调度器：装配任务（多触发器）→ 启动主循环 → 优雅关闭。
 
 每次任意一个触发器命中，调用 runner，按顺序执行所有 actions。
+传给行为的 ctx 仅暴露两个命名空间根对象，避免与用户字段冲突：
+    {task}     —— 当前任务，常用 task.config[xxx]
+    {trigger}  —— 命中的那个触发器，常用 trigger.config[xxx] / trigger.fired_at /
+                  trigger.payload[xxx] / trigger.kind
 """
 
 from __future__ import annotations
 
 import signal
 import time
-from datetime import datetime
 
 import schedule
 from loguru import logger
 
 from anotiflow.task import Task
+from anotiflow.triggers.base import Trigger
 
 
 class Scheduler:
@@ -57,16 +61,10 @@ class Scheduler:
 
     @staticmethod
     def _make_runner(task: Task):
-        def _run(trigger_meta: dict, trigger_payload: dict) -> None:
-            ctx: dict = {
-                "task_name": task.name,
-                "trigger_name": trigger_meta.get("trigger_name", ""),
-                "trigger_type": trigger_meta.get("trigger_type", ""),
-                "trigger_payload": trigger_payload or {},
-                "fired_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            }
+        def _run(trigger: Trigger, _payload: dict) -> None:
+            ctx = {"task": task, "trigger": trigger}
             logger.info(
-                f"task firing: {task.name!r} via {ctx['trigger_name']!r} "
+                f"task firing: {task.name!r} via {trigger.name!r} "
                 f"({len(task.actions)} action(s))"
             )
             for action in task.actions:

@@ -3,12 +3,23 @@
 # 一个任务 = N 个触发器 + N 个行为；任意触发器命中即按顺序执行所有行为
 # ────────────────────────────────────────────────────────────────────────────
 #
-# 行为可使用的 context 字段（在 message_template / publish_event.payload 中用 "{xxx}" 引用）：
-#   {task_name}                  — 任务名
-#   {trigger_name}               — 触发来源描述，如 "interval(every 5 seconds)" / "event(stock.high)"
-#   {trigger_type}               — "interval" / "event"
-#   {fired_at}                   — 触发时刻 "YYYY-MM-DD HH:MM:SS"
-#   {trigger_payload[xxx]}       — 业务载荷字段（事件 payload 来自发布者；定时触发为空 dict）
+# 行为模板可访问的命名空间（在 message_template / publish_event.payload 中用 "{...}" 引用）：
+#
+#   {task.name}                       任务名（= task.config[name]）
+#   {task.config[xxx]}                当前任务的 [[tasks]] 段中任意字段
+#                                     （包括 type/triggers/actions 这些调度字段，也包括用户自加字段）
+#
+#   {trigger.config[name]}            命中触发器的 name（用户在 [[tasks.triggers]] 中显式写的；
+#                                     未写时为 "<type>#<idx>"）
+#   {trigger.config[xxx]}             命中触发器的 [[tasks.triggers]] 段中任意字段
+#                                     （type / every / unit / event / 以及任何自定义字段）
+#   {trigger.kind}                    "interval" / "event"
+#   {trigger.fired_at}                本次命中时刻 "YYYY-MM-DD HH:MM:SS"
+#   {trigger.payload[xxx]}            事件载荷字段（事件触发时来自发布者；定时触发为 {}）
+#
+# 这种命名空间访问彻底消除了"用户字段名与框架字段冲突"的问题 —— 你可以在任意 [[tasks]] /
+# [[tasks.triggers]] 段里写任意字段（包括 type/every/unit/name 等内置字段），全部能通过
+# task.config / trigger.config 读到。
 #
 # IntervalTrigger 完整保留 schedule 库的灵活性：
 #   unit:  seconds/second, minutes/minute, hours/hour, days/day, weeks/week,
@@ -26,8 +37,12 @@
 [[tasks]]
 name = "check_stock_price"
 enabled = true
+# 任意业务字段都可以写在这里，模板里通过 task.config[xxx] 读取
+symbol = "AAPL"
+threshold = 100.0
 
 [[tasks.triggers]]
+name = "every_5s_tick"
 type = "interval"
 every = 5
 unit = "seconds"
@@ -37,40 +52,53 @@ type = "custom"
 path = "examples.user_actions.check_stock_price"
 
 
-# ── 任务 2：多触发器演示 ─────────────────────────────────────────────────────
-# 同一个任务绑定 3 个触发器：定时（每 12 秒）、事件（stock.high）、事件（manual.fire）
-# 任意命中都会触发后面的飞书 + 钉钉两个行为按序执行
+# ── 任务 2：多触发器 + 各自的自定义配置 ─────────────────────────────────────
+# 每个触发器都有 name 和任意自定义字段（source / severity / emoji ...）。
+# 同一组飞书 + 钉钉行为，根据"是哪个触发器命中"动态拼出不同消息。
 [[tasks]]
 name = "notify_with_multi_triggers"
 enabled = true
 
 [[tasks.triggers]]
+name = "tick_every_12s"
 type = "interval"
 every = 12
 unit = "seconds"
+source = "定时巡检"
+severity = "info"
+emoji = "🕒"
 
 [[tasks.triggers]]
+name = "stock_price_high"
 type = "event"
 event = "stock.high"
+source = "股价告警"
+severity = "warning"
+emoji = "⚠️"
 
 [[tasks.triggers]]
+name = "manually_fired"
 type = "event"
 event = "manual.fire"
+source = "手动触发"
+severity = "critical"
+emoji = "🔥"
 
 [[tasks.actions]]
 type = "feishu"
 token = "53xxxx"
 secret = "Ayxxxx"
-message_template = """[{task_name}] 触发来源={trigger_name} 时间={fired_at}
-载荷={trigger_payload}
+message_template = """{trigger.config[emoji]} [{trigger.config[severity]}] {trigger.config[source]}
+任务={task.config[name]}  触发器={trigger.config[name]}  时间={trigger.fired_at}
+载荷={trigger.payload}
 <at user_id='all'>所有人</at>"""
 
 [[tasks.actions]]
 type = "dingtalk"
 token = "REPLACE_ME_DINGTALK_TOKEN"
 secret = ""
-title = "anotiflow 通知"
-message_template = "[{task_name} via {trigger_type}] {fired_at} payload={trigger_payload}"
+title = "{trigger.config[emoji]} {trigger.config[source]}"
+message_template = "[{trigger.config[severity]}] {task.config[name]} via {trigger.kind}@{trigger.fired_at} payload={trigger.payload}"
 
 
 # ── 任务 3：定时广播 manual.fire 事件（演示 publish_event + 链式联动） ──────
@@ -82,6 +110,7 @@ name = "daily_morning_fire"
 enabled = false   # 默认关闭以免长时间等到 09:30；按需开启
 
 [[tasks.triggers]]
+name = "every_morning_0930"
 type = "interval"
 unit = "day"
 at = "09:30"
@@ -91,27 +120,24 @@ type = "publish_event"
 event = "manual.fire"
 
 [tasks.actions.payload]
-reason = "daily_morning_fire@{fired_at}"
-source_task = "{task_name}"
+reason = "{task.config[name]}@{trigger.fired_at}"
+source_trigger = "{trigger.config[name]}"
 
 
 # ── 任务 4：每周一 09:00 + 每天 18:30 双触发器 ─────────────────────────────
-# 演示 weekday + 多触发器 + until。默认禁用，仅作为配置参考。
+# 演示 weekday + 多触发器 + until + custom action 直接读 task / trigger 实例。
 [[tasks]]
 name = "weekly_and_daily_demo"
 enabled = false
 
 [[tasks.triggers]]
-type = "interval"
-every = 1
-unit = "seconds"
-
-[[tasks.triggers]]
+name = "monday_morning"
 type = "interval"
 unit = "monday"
 at = "09:00"
 
 [[tasks.triggers]]
+name = "daily_evening"
 type = "interval"
 unit = "day"
 at = "18:30"

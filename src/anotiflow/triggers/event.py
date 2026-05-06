@@ -11,19 +11,20 @@ from anotiflow.triggers.base import RunCallback, Trigger
 
 @register_trigger("event")
 class EventTrigger(Trigger):
-    def __init__(self, event: str) -> None:
+    kind = "event"
+
+    def __init__(self, event: str, **_extra) -> None:
+        super().__init__()
         if not event:
             raise ValueError("event name is required")
-        self.name = f"event({event})"
         self.event = event
         self._handler = None
 
     def bind(self, task_name: str, callback: RunCallback) -> None:
-        meta = {"trigger_name": self.name, "trigger_type": "event", "event": self.event}
-
         def _handler(payload: dict) -> None:
+            self._record_fire(payload)
             logger.debug(f"[trigger] event {self.event!r} firing: task={task_name!r}")
-            callback(meta, payload)
+            callback(self, payload)
 
         self._handler = _handler
         bus.subscribe(self.event, _handler)

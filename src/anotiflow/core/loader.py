@@ -1,36 +1,15 @@
 """TOML 配置加载：读取 → 装配 Task 列表。
 
-配置示例（一个任务，多个触发器 + 多个行为）：
+每个 [[tasks]] / [[tasks.triggers]] 段的原始 dict 会原样保留到 Task.config / Trigger.config，
+模板可通过 {task.config[xxx]} / {trigger.config[xxx]} 访问任意字段（包括 type/every/unit
+等内置字段以及用户自定义字段）。
 
-    [[tasks]]
-    name = "daily_report"
-    enabled = true
-
-    # 触发器可以写成数组（任一命中都会触发任务），也可以写成单个 table
-    [[tasks.triggers]]
-    type = "interval"
-    unit = "day"
-    at = "09:30"
-
-    [[tasks.triggers]]
-    type = "event"
-    event = "manual.fire"
-
-    [[tasks.actions]]
-    type = "custom"
-    path = "examples.user_actions.check_stock"
-
-    [[tasks.actions]]
-    type = "feishu"
-    token = "xxx"
-    message_template = "..."
-
-行为执行时收到的 context 字段:
-    task_name        任务名
-    trigger_name     触发来源名（如 "interval(every 5 seconds)" / "event(stock.high)"）
-    trigger_type     "interval" / "event"
-    trigger_payload  业务载荷（事件 payload；定时触发为空 dict {}）
-    fired_at         触发时刻字符串 "YYYY-MM-DD HH:MM:SS"
+行为执行时收到的 ctx：
+    {task}     —— Task 实例
+                  常用：{task.config[name]} {task.name} {task.config[xxx]}
+    {trigger}  —— 命中的那个 Trigger 实例
+                  常用：{trigger.config[name]} {trigger.config[xxx]}
+                       {trigger.fired_at} {trigger.payload[xxx]} {trigger.kind}
 """
 
 from __future__ import annotations
@@ -79,7 +58,10 @@ def _build_task(raw: dict[str, Any], idx: int) -> Task:
         raise ValueError(f"task {name!r}: at least one [[tasks.actions]] is required")
     actions = [_build_action(dict(c), name, i) for i, c in enumerate(actions_cfg)]
 
-    return Task(name=name, triggers=triggers, actions=actions, enabled=enabled)
+    # 原始 dict 全量保留（深拷贝一份避免运行期被意外修改）
+    task_config = _deep_copy_config(raw)
+    task_config.setdefault("name", name)
+    return Task(name=name, triggers=triggers, actions=actions, enabled=enabled, config=task_config)
 
 
 def _build_triggers(raw: dict[str, Any], task_name: str) -> list[Trigger]:
@@ -92,19 +74,30 @@ def _build_triggers(raw: dict[str, Any], task_name: str) -> list[Trigger]:
         raise ValueError(f"task {task_name!r}: use either [[tasks.triggers]] or [tasks.trigger], not both")
 
     if single is not None:
-        return [_build_trigger(dict(single))]
+        return [_build_trigger(dict(single), task_name, 0)]
 
     if not isinstance(triggers_cfg, list) or not triggers_cfg:
         raise ValueError(f"task {task_name!r}: 'triggers' must be a non-empty array of tables")
-    return [_build_trigger(dict(c)) for c in triggers_cfg]
+    return [_build_trigger(dict(c), task_name, i) for i, c in enumerate(triggers_cfg)]
 
 
-def _build_trigger(cfg: dict[str, Any]) -> Trigger:
-    type_name = cfg.pop("type", None)
+def _build_trigger(cfg: dict[str, Any], task_name: str, idx: int) -> Trigger:
+    type_name = cfg.get("type")
     if not type_name:
-        raise ValueError("trigger: 'type' is required")
+        raise ValueError(f"task {task_name!r} trigger#{idx}: 'type' is required")
     cls = get_trigger_class(type_name)
-    return cls(**cfg)
+
+    # 内置已知字段交给类型自身的 __init__ 校验；其余字段由 **_extra 吃掉，
+    # 完整 dict 全量保留到 trigger.config，供模板访问。
+    init_kwargs = {k: v for k, v in cfg.items() if k != "type"}
+    instance = cls(**init_kwargs)
+
+    raw_config = _deep_copy_config(cfg)
+    # 若用户没显式给 trigger 写 name，自动派生一个
+    raw_config.setdefault("name", f"{type_name}#{idx}")
+    instance.config = raw_config
+    instance.name = str(raw_config["name"])
+    return instance
 
 
 def _build_action(cfg: dict[str, Any], task_name: str, idx: int) -> Action:
@@ -142,3 +135,16 @@ def _import_dotted(dotted: str):
         return getattr(module, attr)
     except AttributeError as e:
         raise AttributeError(f"{dotted!r}: '{attr}' not found in module {module_name!r}") from e
+
+
+def _deep_copy_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    """轻量深拷贝（TOML 解析结果只含 dict/list/标量）。"""
+    return {k: _deep_copy_value(v) for k, v in cfg.items()}
+
+
+def _deep_copy_value(v: Any) -> Any:
+    if isinstance(v, dict):
+        return _deep_copy_config(v)
+    if isinstance(v, list):
+        return [_deep_copy_value(x) for x in v]
+    return v

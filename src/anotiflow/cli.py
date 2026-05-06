@@ -1,8 +1,9 @@
 """anotiflow CLI 入口。
 
 用法:
-    uv run anotiflow --config config.toml
-    uv run anotiflow -c config.toml --log-level DEBUG
+    uv run anotiflow                          # 默认读取当前目录下的 ./config.toml
+    uv run anotiflow --config my.toml         # 指定配置文件
+    uv run anotiflow -c my.toml --log-level DEBUG
 """
 
 from __future__ import annotations
@@ -19,7 +20,11 @@ from anotiflow.logging_setup import setup_logging
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="anotiflow", description="可扩展任务调度通知框架")
-    parser.add_argument("-c", "--config", required=True, help="TOML 配置文件路径")
+    parser.add_argument(
+        "-c", "--config",
+        default="config.toml",
+        help="TOML 配置文件路径（默认: 当前目录下的 ./config.toml）",
+    )
     parser.add_argument("--log-level", default="INFO", help="日志级别 (DEBUG/INFO/WARNING/ERROR)")
     args = parser.parse_args(argv)
 
