@@ -1,4 +1,4 @@
-# anotify 示例配置
+# anotiflow 示例配置
 # ────────────────────────────────────────────────────────────────────────────
 # 一个任务 = N 个触发器 + N 个行为；任意触发器命中即按顺序执行所有行为
 # ────────────────────────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ message_template = """[{task_name}] 触发来源={trigger_name} 时间={fired_at
 type = "dingtalk"
 token = "REPLACE_ME_DINGTALK_TOKEN"
 secret = ""
-title = "anotify 通知"
+title = "anotiflow 通知"
 message_template = "[{task_name} via {trigger_type}] {fired_at} payload={trigger_payload}"
 
 

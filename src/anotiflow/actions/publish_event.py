@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from loguru import logger
 
-from anotify.actions.base import Action
-from anotify.core.event_bus import bus
-from anotify.core.registry import register_action
+from anotiflow.actions.base import Action
+from anotiflow.core.event_bus import bus
+from anotiflow.core.registry import register_action
 
 
 @register_action("publish_event")

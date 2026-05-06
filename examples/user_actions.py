@@ -15,7 +15,7 @@ import random
 
 from loguru import logger
 
-from anotify.core.event_bus import bus
+from anotiflow.core.event_bus import bus
 
 
 def check_stock_price(context: dict) -> None:

@@ -6,7 +6,7 @@ from abc import abstractmethod
 
 from loguru import logger
 
-from anotify.actions.base import Action
+from anotiflow.actions.base import Action
 
 
 class NotifyAction(Action):

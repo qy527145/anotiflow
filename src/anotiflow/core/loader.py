@@ -43,12 +43,12 @@ from pathlib import Path
 from typing import Any
 
 # 触发器/行为子模块的 import 副作用会向注册表登记类型，必须先 import
-import anotify.actions  # noqa: F401
-import anotify.triggers  # noqa: F401
-from anotify.actions.base import Action, CallableAction
-from anotify.core.registry import get_action_class, get_trigger_class
-from anotify.task import Task
-from anotify.triggers.base import Trigger
+import anotiflow.actions  # noqa: F401
+import anotiflow.triggers  # noqa: F401
+from anotiflow.actions.base import Action, CallableAction
+from anotiflow.core.registry import get_action_class, get_trigger_class
+from anotiflow.task import Task
+from anotiflow.triggers.base import Trigger
 
 
 def load_tasks(config_path: str | Path) -> list[Task]:

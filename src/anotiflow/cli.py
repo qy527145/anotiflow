@@ -1,8 +1,8 @@
-"""anotify CLI 入口。
+"""anotiflow CLI 入口。
 
 用法:
-    uv run anotify --config config.toml
-    uv run anotify -c config.toml --log-level DEBUG
+    uv run anotiflow --config config.toml
+    uv run anotiflow -c config.toml --log-level DEBUG
 """
 
 from __future__ import annotations
@@ -12,13 +12,13 @@ import sys
 
 from loguru import logger
 
-from anotify.core.loader import load_tasks
-from anotify.core.scheduler import Scheduler
-from anotify.logging_setup import setup_logging
+from anotiflow.core.loader import load_tasks
+from anotiflow.core.scheduler import Scheduler
+from anotiflow.logging_setup import setup_logging
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="anotify", description="可扩展任务调度通知框架")
+    parser = argparse.ArgumentParser(prog="anotiflow", description="可扩展任务调度通知框架")
     parser.add_argument("-c", "--config", required=True, help="TOML 配置文件路径")
     parser.add_argument("--log-level", default="INFO", help="日志级别 (DEBUG/INFO/WARNING/ERROR)")
     args = parser.parse_args(argv)

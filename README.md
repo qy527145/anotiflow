@@ -1,4 +1,4 @@
-# anotify
+# anotiflow
 
 可扩展的任务调度通知框架：**触发器 + 行为插件 + 事件总线**，TOML 配置驱动，基于 UV 管理。
 
@@ -26,14 +26,14 @@
 
 ```bash
 git clone <this-repo>
-cd anotify
+cd anotiflow
 uv sync
 ```
 
 ## 快速开始
 
 ```bash
-uv run anotify --config examples/config.toml
+uv run anotiflow --config examples/config.toml
 # 可选：--log-level DEBUG
 ```
 
@@ -103,7 +103,7 @@ Task = name + enabled + [Trigger, ...] + [Action, ...]
 进程内线程安全的发布/订阅单例：
 
 ```python
-from anotify.core.event_bus import bus
+from anotiflow.core.event_bus import bus
 bus.publish("stock.high", {"symbol": "AAPL", "price": 107.6})
 ```
 
@@ -153,7 +153,7 @@ message_template = """[{task_name}] 触发={trigger_name} @ {fired_at}
 type = "dingtalk"
 token = "xxxx"
 secret = "yyyy"
-title = "anotify 通知"
+title = "anotiflow 通知"
 message_template = "{trigger_payload[symbol]} = {trigger_payload[price]}"
 
 # 任务 3：每天 09:30 广播事件（用 publish_event 串联）
@@ -182,7 +182,7 @@ reason = "morning_cron@{fired_at}"
 
 ```python
 # examples/user_actions.py
-from anotify.core.event_bus import bus
+from anotiflow.core.event_bus import bus
 from loguru import logger
 
 def check_stock_price(context: dict) -> None:
@@ -200,17 +200,17 @@ type = "custom"
 path = "examples.user_actions.check_stock_price"
 ```
 
-模块解析路径：框架会把 CWD 与 config 文件所在目录都加入 `sys.path`，所以 `examples.user_actions.check_stock_price` 在项目根目录执行 `uv run anotify` 时能被正确加载。
+模块解析路径：框架会把 CWD 与 config 文件所在目录都加入 `sys.path`，所以 `examples.user_actions.check_stock_price` 在项目根目录执行 `uv run anotiflow` 时能被正确加载。
 
 ## 扩展新渠道 / 新触发器
 
 以新增企业微信通知为例：
 
 ```python
-# src/anotify/actions/wecom.py
+# src/anotiflow/actions/wecom.py
 from ipush import WeCom
-from anotify.actions.notify_base import NotifyAction
-from anotify.core.registry import register_action
+from anotiflow.actions.notify_base import NotifyAction
+from anotiflow.core.registry import register_action
 
 @register_action("wecom")
 class WeComNotify(NotifyAction):
@@ -223,18 +223,18 @@ class WeComNotify(NotifyAction):
         self._client.send(message)
 ```
 
-在 [src/anotify/actions/__init__.py](src/anotify/actions/__init__.py) 里 `import` 该模块触发 `@register_action` 装饰器副作用，之后 TOML 里 `type = "wecom"` 即可使用。
+在 [src/anotiflow/actions/__init__.py](src/anotiflow/actions/__init__.py) 里 `import` 该模块触发 `@register_action` 装饰器副作用，之后 TOML 里 `type = "wecom"` 即可使用。
 
-新增触发器同理：继承 `Trigger` + `@register_trigger("your_type")`，在 [src/anotify/triggers/__init__.py](src/anotify/triggers/__init__.py) 里 `import`。
+新增触发器同理：继承 `Trigger` + `@register_trigger("your_type")`，在 [src/anotiflow/triggers/__init__.py](src/anotiflow/triggers/__init__.py) 里 `import`。
 
 ## 项目结构
 
 ```
-anotify/
+anotiflow/
 ├── pyproject.toml
-├── src/anotify/
-│   ├── cli.py                     # uv run anotify 入口
-│   ├── __main__.py                # python -m anotify
+├── src/anotiflow/
+│   ├── cli.py                     # uv run anotiflow 入口
+│   ├── __main__.py                # python -m anotiflow
 │   ├── task.py                    # Task 数据类
 │   ├── logging_setup.py           # loguru 初始化
 │   ├── core/
@@ -260,10 +260,10 @@ anotify/
 ## 运行
 
 ```bash
-uv run anotify --config examples/config.toml
-uv run anotify --config /path/to/your.toml --log-level DEBUG
+uv run anotiflow --config examples/config.toml
+uv run anotiflow --config /path/to/your.toml --log-level DEBUG
 # 等价写法
-uv run python -m anotify --config examples/config.toml
+uv run python -m anotiflow --config examples/config.toml
 ```
 
 `Ctrl-C` 或 `SIGTERM` 会触发 Scheduler 解绑所有触发器并优雅退出。

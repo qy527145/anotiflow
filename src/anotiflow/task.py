@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from anotify.actions.base import Action
-from anotify.triggers.base import Trigger
+from anotiflow.actions.base import Action
+from anotiflow.triggers.base import Trigger
 
 
 @dataclass

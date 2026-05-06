@@ -25,8 +25,8 @@ from __future__ import annotations
 import schedule
 from loguru import logger
 
-from anotify.core.registry import register_trigger
-from anotify.triggers.base import RunCallback, Trigger
+from anotiflow.core.registry import register_trigger
+from anotiflow.triggers.base import RunCallback, Trigger
 
 _SINGULAR_UNITS = {"second", "minute", "hour", "day", "week"}
 _PLURAL_UNITS = {"seconds", "minutes", "hours", "days", "weeks"}

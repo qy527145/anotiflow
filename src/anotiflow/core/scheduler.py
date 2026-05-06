@@ -12,7 +12,7 @@ from datetime import datetime
 import schedule
 from loguru import logger
 
-from anotify.task import Task
+from anotiflow.task import Task
 
 
 class Scheduler:

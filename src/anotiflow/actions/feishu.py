@@ -5,8 +5,8 @@ from __future__ import annotations
 from ipush import Feishu
 from loguru import logger
 
-from anotify.actions.notify_base import NotifyAction
-from anotify.core.registry import register_action
+from anotiflow.actions.notify_base import NotifyAction
+from anotiflow.core.registry import register_action
 
 
 @register_action("feishu")

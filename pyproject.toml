@@ -1,5 +1,5 @@
 [project]
-name = "anotify"
+name = "anotiflow"
 version = "0.1.0"
 description = "可扩展的任务调度通知框架：触发器 + 行为插件 + 事件总线，TOML 配置驱动"
 readme = "README.md"
@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-anotify = "anotify.cli:main"
+anotiflow = "anotiflow.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.11.8,<0.12.0"]
