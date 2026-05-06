@@ -1,0 +1,122 @@
+# anotify 示例配置
+# ────────────────────────────────────────────────────────────────────────────
+# 一个任务 = N 个触发器 + N 个行为；任意触发器命中即按顺序执行所有行为
+# ────────────────────────────────────────────────────────────────────────────
+#
+# 行为可使用的 context 字段（在 message_template / publish_event.payload 中用 "{xxx}" 引用）：
+#   {task_name}                  — 任务名
+#   {trigger_name}               — 触发来源描述，如 "interval(every 5 seconds)" / "event(stock.high)"
+#   {trigger_type}               — "interval" / "event"
+#   {fired_at}                   — 触发时刻 "YYYY-MM-DD HH:MM:SS"
+#   {trigger_payload[xxx]}       — 业务载荷字段（事件 payload 来自发布者；定时触发为空 dict）
+#
+# IntervalTrigger 完整保留 schedule 库的灵活性：
+#   unit:  seconds/second, minutes/minute, hours/hour, days/day, weeks/week,
+#          以及 monday..sunday
+#   每 5 秒                  → unit="seconds", every=5
+#   每 5~10 秒随机            → unit="seconds", every=5, to=10
+#   每分钟的第 23 秒           → unit="minute",  at=":23"
+#   每天 09:30                → unit="day",     at="09:30"
+#   每周一 13:15              → unit="monday",  at="13:15"
+#   每小时执行直到 18:30       → unit="hour",    until="18:30"
+
+
+# ── 任务 1：定时检查股价 ─────────────────────────────────────────────────────
+# 每 5 秒检查一次，条件满足时广播 stock.high 事件（业务逻辑写在 user_actions.py）
+[[tasks]]
+name = "check_stock_price"
+enabled = true
+
+[[tasks.triggers]]
+type = "interval"
+every = 5
+unit = "seconds"
+
+[[tasks.actions]]
+type = "custom"
+path = "examples.user_actions.check_stock_price"
+
+
+# ── 任务 2：多触发器演示 ─────────────────────────────────────────────────────
+# 同一个任务绑定 3 个触发器：定时（每 12 秒）、事件（stock.high）、事件（manual.fire）
+# 任意命中都会触发后面的飞书 + 钉钉两个行为按序执行
+[[tasks]]
+name = "notify_with_multi_triggers"
+enabled = true
+
+[[tasks.triggers]]
+type = "interval"
+every = 12
+unit = "seconds"
+
+[[tasks.triggers]]
+type = "event"
+event = "stock.high"
+
+[[tasks.triggers]]
+type = "event"
+event = "manual.fire"
+
+[[tasks.actions]]
+type = "feishu"
+token = "53xxxx"
+secret = "Ayxxxx"
+message_template = """[{task_name}] 触发来源={trigger_name} 时间={fired_at}
+载荷={trigger_payload}
+<at user_id='all'>所有人</at>"""
+
+[[tasks.actions]]
+type = "dingtalk"
+token = "REPLACE_ME_DINGTALK_TOKEN"
+secret = ""
+title = "anotify 通知"
+message_template = "[{task_name} via {trigger_type}] {fired_at} payload={trigger_payload}"
+
+
+# ── 任务 3：定时广播 manual.fire 事件（演示 publish_event + 链式联动） ──────
+# 每天 09:30 触发；演示 unit="day" + at="HH:MM"。
+# 想立刻看到效果可临时改成 unit="seconds" + every=20。
+# payload 里的 "{xxx}" 会用 context 渲染。
+[[tasks]]
+name = "daily_morning_fire"
+enabled = false   # 默认关闭以免长时间等到 09:30；按需开启
+
+[[tasks.triggers]]
+type = "interval"
+unit = "day"
+at = "09:30"
+
+[[tasks.actions]]
+type = "publish_event"
+event = "manual.fire"
+
+[tasks.actions.payload]
+reason = "daily_morning_fire@{fired_at}"
+source_task = "{task_name}"
+
+
+# ── 任务 4：每周一 09:00 + 每天 18:30 双触发器 ─────────────────────────────
+# 演示 weekday + 多触发器 + until。默认禁用，仅作为配置参考。
+[[tasks]]
+name = "weekly_and_daily_demo"
+enabled = false
+
+[[tasks.triggers]]
+type = "interval"
+every = 1
+unit = "seconds"
+
+[[tasks.triggers]]
+type = "interval"
+unit = "monday"
+at = "09:00"
+
+[[tasks.triggers]]
+type = "interval"
+unit = "day"
+at = "18:30"
+until = "2026-12-31 23:59"
+
+[[tasks.actions]]
+type = "custom"
+path = "examples.user_actions.print_context"
