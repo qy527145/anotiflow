@@ -1,10 +1,10 @@
 [project]
 name = "anotiflow"
-version = "0.1.0"
+version = "0.1.1"
 description = "可扩展的任务调度通知框架：触发器 + 行为插件 + 事件总线，TOML 配置驱动"
 readme = "README.md"
 authors = [
-    { name = "徐侨", email = "xu.qiao@kotei.com.cn" }
+    { name = "wmymz", email = "wmymz@icloud.com" }
 ]
 requires-python = ">=3.6"
 dependencies = [
@@ -12,6 +12,12 @@ dependencies = [
     "ipush>=0.4",
     "loguru>=0.7",
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/qy527145/anotiflow"
+"Documentation" = "https://github.com/qy527145/anotiflow"
+"Repository" = "https://github.com/qy527145/anotiflow"
+"Issues" = "https://github.com/qy527145/anotiflow/issues"
 
 [project.scripts]
 anotiflow = "anotiflow.cli:main"
