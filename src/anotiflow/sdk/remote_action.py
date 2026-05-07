@@ -151,11 +151,34 @@ class RemoteAction:
     async def _handle_invoke(self, ws, msg: dict) -> None:
         invocation_id = msg.get("invocation_id")
         envelope = msg.get("envelope") or {}
-        ctx = self._build_ctx(envelope)
+        loop = asyncio.get_running_loop()
+
+        async def _send_publish(event: str, payload: Any = None) -> None:
+            if not event:
+                raise ValueError("ctx.publish: event name is required")
+            frame = {"op": "publish", "event": event, "payload": payload or {}}
+            await ws.send(json.dumps(frame, default=_json_default))
+
+        # 同时支持同步与 async handler：
+        #   sync  handler:  ctx.publish("x", {...})         —— 阻塞直到帧发出
+        #   async handler:  await ctx.publish("x", {...})   —— awaitable
+        def publish(event: str, payload: Any = None):
+            try:
+                asyncio.get_running_loop()
+                # 在 event loop 中（async handler）：返回 coroutine，由调用方 await
+                return _send_publish(event, payload)
+            except RuntimeError:
+                # 不在 event loop 中（同步 handler 跑在 to_thread 线程里）
+                fut = asyncio.run_coroutine_threadsafe(_send_publish(event, payload), loop)
+                return fut.result(timeout=10)
+
+        ctx = self._build_ctx(envelope, publish)
         try:
-            result = self._handler(ctx)
-            if asyncio.iscoroutine(result):
-                result = await result
+            if asyncio.iscoroutinefunction(self._handler):
+                result = await self._handler(ctx)
+            else:
+                # 同步 handler 跑到线程池里，避免阻塞 WS 收信循环
+                result = await asyncio.to_thread(self._handler, ctx)
             reply = {"op": "result", "invocation_id": invocation_id, "ok": True, "value": result}
         except Exception as e:
             err = traceback.format_exc()
@@ -167,8 +190,12 @@ class RemoteAction:
             logger.exception("failed to send result back")
 
     @staticmethod
-    def _build_ctx(envelope: dict) -> SimpleNamespace:
-        """把 envelope 还原成与本地 CallableAction 同形的属性访问对象。"""
+    def _build_ctx(envelope: dict, publish: Any) -> SimpleNamespace:
+        """把 envelope 还原成与本地 CallableAction 同形的属性访问对象。
+
+        ctx.publish(event, payload=None) 会把事件经 WebSocket 反向推回服务端，
+        服务端的 EventBus 会广播——订阅了同名事件的 event 触发器会立即触发其它任务。
+        """
         task_d = envelope.get("task") or {}
         trig_d = envelope.get("trigger") or {}
         task = SimpleNamespace(
@@ -182,7 +209,7 @@ class RemoteAction:
             fired_at=trig_d.get("fired_at", ""),
             payload=trig_d.get("payload") or {},
         )
-        return SimpleNamespace(task=task, trigger=trigger, raw=envelope)
+        return SimpleNamespace(task=task, trigger=trigger, raw=envelope, publish=publish)
 
 
 def _json_default(o: Any) -> Any:

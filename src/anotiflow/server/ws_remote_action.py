@@ -14,6 +14,7 @@ from __future__ import annotations
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
 
+from anotiflow.core.event_bus import bus
 from anotiflow.core.remote_broker import RemoteBroker
 from anotiflow.core.token_registry import TokenRegistry
 
@@ -44,6 +45,16 @@ def make_router(broker: RemoteBroker, tokens: TokenRegistry) -> APIRouter:
                     if not invocation_id:
                         continue
                     broker.deliver_result(invocation_id, msg)
+                elif op == "publish":
+                    # 客户端 handler 通过 ctx.publish(event, payload) 反向广播事件。
+                    # 服务端 EventBus 立刻分发；订阅了同名事件的 event 触发器会触发其它任务。
+                    event = msg.get("event")
+                    payload = msg.get("payload") or {}
+                    if not event:
+                        logger.warning(f"[ws] publish without event from token={token}")
+                        continue
+                    logger.info(f"[ws] remote publish: event={event!r} payload={payload!r} from token={token}")
+                    bus.publish(event, payload)
                 elif op == "ping":
                     await websocket.send_json({"op": "pong"})
                 elif op == "pong":
