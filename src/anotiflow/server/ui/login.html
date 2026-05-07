@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>anotiflow - login</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#0e1116; color:#e6edf3; margin:0; height:100vh; display:flex; align-items:center; justify-content:center; }
+  .box { background:#161b22; padding:2rem; border-radius:8px; border:1px solid #30363d; min-width:360px; }
+  h1 { margin:0 0 1rem 0; font-size:1.4rem; }
+  input { width:100%; padding:0.6rem; box-sizing:border-box; background:#0d1117; color:#e6edf3; border:1px solid #30363d; border-radius:6px; font-family:monospace; }
+  button { margin-top:1rem; width:100%; padding:0.7rem; background:#2ea043; color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer; }
+  button:hover { background:#3fb950; }
+  .err { color:#f85149; margin-top:0.5rem; font-size:0.9rem; }
+  .hint { color:#7d8590; margin-top:1rem; font-size:0.85rem; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>anotiflow 控制台</h1>
+    <input id="tok" placeholder="admin token" autofocus />
+    <button onclick="submit()">登录</button>
+    <div id="err" class="err"></div>
+    <div class="hint">admin token 在首次启动时打印到日志（搜索 "auto-issued admin token"），或在 config.toml 的 [server].admin_token 字段。</div>
+  </div>
+<script>
+async function submit() {
+  const tok = document.getElementById('tok').value.trim();
+  if (!tok) return;
+  const resp = await fetch('/api/config', { headers: { 'X-Admin-Token': tok } });
+  if (resp.ok) {
+    document.cookie = `admin_token=${tok}; path=/; max-age=86400`;
+    location.href = '/';
+  } else {
+    document.getElementById('err').textContent = 'token 无效';
+  }
+}
+document.getElementById('tok').addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+</script>
+</body>
+</html>

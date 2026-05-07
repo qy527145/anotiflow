@@ -1,28 +1,31 @@
 # anotiflow
 
-可扩展的任务调度通知框架：**触发器 + 行为插件 + 事件总线**，TOML 配置驱动，基于 UV 管理。
+可扩展的任务调度通知框架：**触发器 + 行为插件 + 事件总线 + Web 控制台 + 远程动作 SDK**，TOML 配置驱动，基于 UV 管理。
 
 ```
-触发器（定时 / 事件）──▶ 任务 ──▶ 多个行为按序执行（飞书 / 钉钉 / 自定义 / 广播事件）
-                                            │
-                                            └─ bus.publish(...) ──▶ 事件触发其他任务
+触发器（定时 / 事件 / API）──▶ 任务 ──▶ 多个行为按序执行（飞书 / 钉钉 / 自定义本地 / 自定义远程 / 广播事件）
+                                                   │
+                                                   ├─ bus.publish(...) ──▶ 事件触发其他任务
+                                                   └─ WebSocket ──▶ 远端 SDK handler 执行
 ```
 
 一个任务可以绑定 **N 个触发器 + N 个行为**，任意触发器命中即按顺序执行全部行为。通过 `publish_event` 行为或用户自定义函数向 `EventBus` 广播事件，实现任务之间的链式联动。
 
 ## 特性
 
-- **插件式设计** — 顶层 `Action` / `Trigger` 抽象基类，派生出通知基类 / 具体渠道；装饰器 `@register_action("xxx")` 即可注册新类型，TOML 自动识别
-- **两种触发器** — 定时（基于 `schedule`，**完整保留其原生灵活性**：秒/分/时/天/周、每周一..周日、`at` 精确时刻、`to` 随机区间、`until` 截止时刻）+ 事件（进程内 EventBus 订阅）；预留手动触发扩展点
-- **内置通知渠道** — 飞书 / 钉钉（基于 `ipush`），统一继承 `NotifyAction`，一个任务可多渠道同步发送
-- **配置即代码** — TOML 管理任务、触发器、行为参数；新增任务零代码
-- **自定义业务逻辑** — 用户写普通 Python 函数（`fn(context) -> None`），TOML 以 dotted path 引用；通常用于"定时检查 + 满足条件广播事件"的判断层
-- **链式联动** — `EventBus.publish(event, payload)` 与 `EventTrigger` 配对，形成任务间事件链路
-- **工程细节** — loguru 日志、任务启用/禁用、行为级异常捕获、SIGINT/SIGTERM 优雅关闭
+- **插件式设计** — 顶层 `Action` / `Trigger` 抽象基类，装饰器 `@register_action("xxx")` 即可注册新类型，TOML 自动识别
+- **三种触发器** — 定时（基于 `schedule`，完整保留其原生灵活性）+ 事件（进程内 EventBus 订阅）+ **API webhook**（自动签发 token，`POST /trigger/<token>` 携带 payload 即触发）
+- **内置通知渠道** — 飞书 / 钉钉（基于 `ipush`）
+- **本地 + 远程自定义动作** — 本地走 dotted-path Python 函数；远程通过 WebSocket SDK，**业务依赖跑在客户端 venv 里**，与宿主完全解耦
+- **Web 控制台** — 单文件 HTML，可视化管理任务/触发器/动作；改动落盘 TOML，文件改动实时生效，两路等价
+- **配置即代码 + 实时同步** — TOML 是事实源，watchdog 监听文件变化自动 rebind；UI 与文件双向同步、hash 抑制回环
+- **链式联动** — `EventBus.publish(event, payload)` 与 `EventTrigger` 配对；远程动作回包成功还可经 `publish_on_success` 串入事件总线
+- **统一令牌系统** — admin / action / trigger 三类 scope；`<config_dir>/.anotiflow/tokens.json` 持久化；为后续 MCP / Skill / CLI 接入预留 scope 扩展点
+- **工程细节** — loguru 日志、任务启用/禁用、行为级异常捕获、SIGINT/SIGTERM 优雅关闭、UI 改动原子落盘、远程客户端断线指数回退重连
 
 ## 安装
 
-需要 [UV](https://docs.astral.sh/uv/)。
+需要 [UV](https://docs.astral.sh/uv/) 与 Python ≥ 3.9。
 
 ```bash
 git clone <this-repo>
@@ -33,11 +36,23 @@ uv sync
 ## 快速开始
 
 ```bash
-uv run anotiflow --config examples/config.toml
-# 可选：--log-level DEBUG
+# 任意空目录启动；不存在 config.toml 时会自动生成空模板与 admin token
+mkdir my-anotiflow && cd my-anotiflow
+uv run --project /path/to/anotiflow anotiflow
+
+# 控制台输出会包含：
+#   auto-issued admin token: adm_xxxxxxxxxxxxxxxxxx
+#   web server starting at http://127.0.0.1:8765
 ```
 
-默认示例会每 5 秒随机模拟一次"股价检查"，高于阈值即广播 `stock.high` 事件，触发飞书 / 钉钉通知。将 [examples/config.toml](examples/config.toml) 里的 `token` / `secret` 替换为真实值就能收到真通知；占位值会发送失败但不会让进程崩溃。
+打开浏览器访问 `http://127.0.0.1:8765`，登录页填入 admin token，即可可视化管理任务、触发器、动作。
+
+也可以照旧用现成示例：
+
+```bash
+uv run anotiflow --config examples/config.toml
+# 可选：--log-level DEBUG / --port 9000 / --no-web（仅引擎，不起 Web）
+```
 
 ## 核心概念
 
@@ -55,6 +70,7 @@ Task = name + enabled + [Trigger, ...] + [Action, ...]
 |---|---|---|
 | `interval` | 定时，基于 `schedule` | `unit` 必填；`every` / `to` / `at` / `until` 可选 |
 | `event` | 订阅 EventBus 事件 | `event` 事件名 |
+| `api` | webhook 接入，外部 POST 触发 | `token`（缺失时自动签发） |
 
 `interval` 的 `unit` 取值覆盖 `schedule` 的全部灵活性：
 
@@ -74,7 +90,7 @@ Task = name + enabled + [Trigger, ...] + [Action, ...]
 
 ### Action（行为）
 
-抽象层次：`Action`（顶层）→ `NotifyAction`（通知基类）→ `FeishuNotify` / `DingtalkNotify` / ...
+抽象层次：`Action`（顶层）→ `NotifyAction`（通知基类）→ `FeishuNotify` / `DingtalkNotify` / `RemoteActionProxy` / ...
 
 内置类型：
 
@@ -83,22 +99,110 @@ Task = name + enabled + [Trigger, ...] + [Action, ...]
 | `feishu` | 飞书群机器人 | `token`, `secret`, `message_template` |
 | `dingtalk` | 钉钉群机器人 | `token`, `secret`, `title`, `message_template` |
 | `publish_event` | 向 EventBus 广播事件（用于串联任务） | `event`, `[tasks.actions.payload]` |
-| `custom` | 调用用户自定义函数 | `path = "module.func"` |
+| `custom` (本地) | 调用宿主 venv 内的 Python 函数 | `path = "module.func"` |
+| `custom` (远程) | WebSocket 派发到远端 SDK 客户端 | `remote = true`, `token`, `wait`, `timeout_seconds`, `offline_policy`, `publish_on_success` |
 
 ### Context（行为执行时的上下文）
 
-每次任务触发，框架会组装 context 字典传给每个 action。在 `message_template` / `publish_event.payload` 里用 `{xxx}` 引用：
+行为模板可访问的命名空间（在 `message_template` / `publish_event.payload` 中用 `{...}` 引用）：
 
 | 字段 | 含义 |
 |---|---|
-| `{task_name}` | 任务名 |
-| `{trigger_name}` | 触发来源描述，如 `interval(every 5 seconds)` / `event(stock.high)` |
-| `{trigger_type}` | `interval` / `event` |
-| `{fired_at}` | 触发时刻 `YYYY-MM-DD HH:MM:SS` |
-| `{trigger_payload}` | 完整业务载荷 dict |
-| `{trigger_payload[symbol]}` | 载荷中某字段 |
+| `{task.name}` | 任务名 |
+| `{task.config[xxx]}` | 当前任务任意字段 |
+| `{trigger.config[xxx]}` | 命中触发器任意字段 |
+| `{trigger.kind}` | `interval` / `event` / `api` |
+| `{trigger.fired_at}` | 命中时刻 `YYYY-MM-DD HH:MM:SS` |
+| `{trigger.payload[xxx]}` | 业务载荷字段（API/事件触发时来自 body/发布者；定时触发为 `{}`） |
 
-### EventBus
+## Web 控制台
+
+启动后默认监听 `http://127.0.0.1:8765`（可在 `[server]` 段或 `--host/--port` 覆盖）。
+
+- **首次访问**：日志中找到 `auto-issued admin token: adm_xxx`，登录页粘贴。
+- **左栏**：任务列表，点击 + 新建，圆点表示 enabled。
+- **中栏**：当前任务的触发器 / 动作表单编辑；动作类型选 `custom` + `remote=true` 时会自动展示客户端 SDK 代码片段。
+- **右栏**：实时只读 TOML 预览。
+- **顶部 Tokens**：列出全部令牌、可吊销。
+
+UI 改动通过 `PUT /api/config` 落盘；外部直接编辑 `config.toml` 也会被 watchdog 捕获并实时 rebind。两路等价。
+
+> ⚠️ TOML 写回不保留注释（这是 `tomli_w` 的限制）。如果你严重依赖配置文件里的注释，建议把它们拆到一个独立的 `README` 或保持只用 UI 编辑。
+
+## API 触发（webhook）
+
+```toml
+[[tasks.triggers]]
+name = "incoming"
+type = "api"
+# token 不写时会在首次启动时自动签发并回写到本文件
+```
+
+外部触发：
+
+```bash
+curl -X POST http://127.0.0.1:8765/trigger/<token> \
+     -H 'Content-Type: application/json' \
+     -d '{"symbol":"AAPL","price":107.6}'
+```
+
+body 即 `trigger.payload`；模板 `{trigger.payload[symbol]}` 直接可用。
+
+## 自定义动作
+
+### 本地（与原版一致）
+
+```python
+# user_actions.py
+from anotiflow.core.event_bus import bus
+def check_stock_price(context):
+    task, trigger = context["task"], context["trigger"]
+    ...
+    bus.publish("stock.high", {...})
+```
+
+```toml
+[[tasks.actions]]
+type = "custom"
+path = "user_actions.check_stock_price"
+```
+
+模块解析路径：CWD 与 config 文件所在目录都自动加入 `sys.path`。
+
+### 远程（推荐：业务依赖跑在客户端进程）
+
+宿主侧配置（token 不写就自动签发）：
+
+```toml
+[[tasks.actions]]
+type = "custom"
+remote = true
+wait = true                  # 阻塞等待客户端回包；false 即 fire-and-forget
+timeout_seconds = 30
+offline_policy = "queue"     # queue 堆积 / drop 丢弃 / error 抛错
+publish_on_success = "task.done"   # 可选：回包 ok=true 时把 value 串入事件总线
+```
+
+客户端（任意机器、任意 venv，只需 `pip install anotiflow`）：
+
+```python
+from anotiflow import RemoteAction
+
+action = RemoteAction("ws://anotiflow-host:8765", token="<上面 UI 复制的 token>")
+
+@action.handler
+def handle(ctx):
+    # ctx.task.name / ctx.task.config
+    # ctx.trigger.name / ctx.trigger.kind / ctx.trigger.config
+    # ctx.trigger.fired_at / ctx.trigger.payload
+    return {"ok": True}        # 任意 JSON-friendly 值；通过 publish_on_success 流回事件总线
+
+action.run()                   # 阻塞；自动断线指数回退重连
+```
+
+完整示例：[examples/remote_client.py](examples/remote_client.py)。
+
+## EventBus
 
 进程内线程安全的发布/订阅单例：
 
@@ -109,102 +213,11 @@ bus.publish("stock.high", {"symbol": "AAPL", "price": 107.6})
 
 ## 配置示例
 
-```toml
-# 任务 1：每 5 秒跑一次自定义业务检查
-[[tasks]]
-name = "check_stock_price"
-enabled = true
-
-[[tasks.triggers]]
-type = "interval"
-every = 5
-unit = "seconds"
-
-[[tasks.actions]]
-type = "custom"
-path = "examples.user_actions.check_stock_price"
-
-# 任务 2：多触发器（定时 + 两个事件），按序发飞书 + 钉钉
-[[tasks]]
-name = "notify_with_multi_triggers"
-enabled = true
-
-[[tasks.triggers]]
-type = "interval"
-every = 12
-unit = "seconds"
-
-[[tasks.triggers]]
-type = "event"
-event = "stock.high"
-
-[[tasks.triggers]]
-type = "event"
-event = "manual.fire"
-
-[[tasks.actions]]
-type = "feishu"
-token = "xxxx"
-secret = "yyyy"
-message_template = """[{task_name}] 触发={trigger_name} @ {fired_at}
-载荷={trigger_payload}"""
-
-[[tasks.actions]]
-type = "dingtalk"
-token = "xxxx"
-secret = "yyyy"
-title = "anotiflow 通知"
-message_template = "{trigger_payload[symbol]} = {trigger_payload[price]}"
-
-# 任务 3：每天 09:30 广播事件（用 publish_event 串联）
-[[tasks]]
-name = "daily_morning_fire"
-enabled = true
-
-[[tasks.triggers]]
-type = "interval"
-unit = "day"
-at = "09:30"
-
-[[tasks.actions]]
-type = "publish_event"
-event = "manual.fire"
-
-[tasks.actions.payload]
-reason = "morning_cron@{fired_at}"
-```
-
-完整示例见 [examples/config.toml](examples/config.toml)。
-
-## 自定义业务行为
-
-写一个普通 Python 函数，签名 `fn(context: dict) -> None`：
-
-```python
-# examples/user_actions.py
-from anotiflow.core.event_bus import bus
-from loguru import logger
-
-def check_stock_price(context: dict) -> None:
-    price = fetch_price("AAPL")
-    logger.info(f"[{context['task_name']}] price={price} at {context['fired_at']}")
-    if price > 100:
-        bus.publish("stock.high", {"symbol": "AAPL", "price": price})
-```
-
-TOML 引用：
-
-```toml
-[[tasks.actions]]
-type = "custom"
-path = "examples.user_actions.check_stock_price"
-```
-
-模块解析路径：框架会把 CWD 与 config 文件所在目录都加入 `sys.path`，所以 `examples.user_actions.check_stock_price` 在项目根目录执行 `uv run anotiflow` 时能被正确加载。
+完整示例见 [examples/config.toml](examples/config.toml) 与 [examples/config.example.toml](examples/config.example.toml)。
 
 ## 扩展新渠道 / 新触发器
 
-以新增企业微信通知为例：
+新增企业微信通知：
 
 ```python
 # src/anotiflow/actions/wecom.py
@@ -223,7 +236,7 @@ class WeComNotify(NotifyAction):
         self._client.send(message)
 ```
 
-在 [src/anotiflow/actions/__init__.py](src/anotiflow/actions/__init__.py) 里 `import` 该模块触发 `@register_action` 装饰器副作用，之后 TOML 里 `type = "wecom"` 即可使用。
+在 [src/anotiflow/actions/__init__.py](src/anotiflow/actions/__init__.py) 里 `import` 该模块触发 `@register_action` 装饰器副作用。
 
 新增触发器同理：继承 `Trigger` + `@register_trigger("your_type")`，在 [src/anotiflow/triggers/__init__.py](src/anotiflow/triggers/__init__.py) 里 `import`。
 
@@ -234,42 +247,70 @@ anotiflow/
 ├── pyproject.toml
 ├── src/anotiflow/
 │   ├── cli.py                     # uv run anotiflow 入口
-│   ├── __main__.py                # python -m anotiflow
 │   ├── task.py                    # Task 数据类
-│   ├── logging_setup.py           # loguru 初始化
 │   ├── core/
 │   │   ├── event_bus.py           # EventBus 单例
 │   │   ├── registry.py            # 类型注册表
-│   │   ├── loader.py              # TOML → Task[]
-│   │   └── scheduler.py           # 主循环 + 优雅关闭
+│   │   ├── loader.py              # parse_raw + build_tasks（TOML → Task[]）
+│   │   ├── scheduler.py           # 旧版主循环（已被 Engine 取代，文件保留）
+│   │   ├── engine.py              # 运行时核心：装配/绑定/热重载
+│   │   ├── config_store.py        # 配置单一事实源 + 文件 watcher + 原子落盘
+│   │   ├── token_registry.py      # 统一令牌签发/校验/吊销
+│   │   ├── api_trigger_hub.py     # API 触发器注册中心
+│   │   └── remote_broker.py       # 远程动作分发（WS 通道 + 派发表）
 │   ├── triggers/
-│   │   ├── base.py                # Trigger ABC
-│   │   ├── interval.py            # 定时触发（schedule）
-│   │   └── event.py               # 事件触发（EventBus 订阅）
-│   └── actions/
-│       ├── base.py                # Action ABC + CallableAction
-│       ├── notify_base.py         # NotifyAction
-│       ├── feishu.py              # 飞书通知
-│       ├── dingtalk.py            # 钉钉通知
-│       └── publish_event.py       # 广播事件行为
+│   │   ├── base.py / interval.py / event.py
+│   │   └── api.py                 # APITrigger
+│   ├── actions/
+│   │   ├── base.py / notify_base.py / feishu.py / dingtalk.py / publish_event.py
+│   │   └── remote.py              # RemoteActionProxy
+│   ├── server/
+│   │   ├── app.py                 # FastAPI 装配
+│   │   ├── auth.py                # admin token 中间件
+│   │   ├── routes_config.py       # GET/PUT 配置；细粒度 task CRUD
+│   │   ├── routes_tokens.py       # GET/POST/DELETE token
+│   │   ├── routes_trigger_api.py  # POST /trigger/{token}
+│   │   ├── ws_remote_action.py    # WS /ws/{scope}/{token}
+│   │   └── ui/
+│   │       ├── login.html         # 极简登录页
+│   │       └── index.html         # 控制台单文件 UI
+│   └── sdk/
+│       ├── __init__.py            # re-export RemoteAction
+│       └── remote_action.py       # 客户端 SDK
 └── examples/
-    ├── config.toml                # 配置示例（含 4 个任务）
-    └── user_actions.py            # 自定义业务行为示例
+    ├── config.toml                # 配置示例
+    ├── user_actions.py            # 本地自定义动作示例
+    └── remote_client.py           # 远程自定义动作客户端示例
 ```
 
 ## 运行
 
 ```bash
-uv run anotiflow --config examples/config.toml
-uv run anotiflow --config /path/to/your.toml --log-level DEBUG
+uv run anotiflow                                  # 当前目录 ./config.toml；不存在自动生成
+uv run anotiflow --config /path/to/your.toml     # 指定配置文件
+uv run anotiflow --no-web                         # 仅引擎模式（兼容 0.2.x 老用法）
+uv run anotiflow --host 0.0.0.0 --port 9000       # 覆盖 [server].host/port
+uv run anotiflow --log-level DEBUG
 # 等价写法
-uv run python -m anotiflow --config examples/config.toml
+uv run python -m anotiflow
 ```
 
-`Ctrl-C` 或 `SIGTERM` 会触发 Scheduler 解绑所有触发器并优雅退出。
+`Ctrl-C` 或 `SIGTERM` 会触发引擎解绑所有触发器、停掉 Web、并优雅退出。
 
 ## 依赖
 
 - [schedule](https://pypi.org/project/schedule/) — 定时调度
-- [ipush](https://pypi.org/project/ipush/) — 飞书 / 钉钉等推送渠道统一封装
+- [ipush](https://pypi.org/project/ipush/) — 飞书 / 钉钉等推送渠道封装
 - [loguru](https://pypi.org/project/loguru/) — 日志
+- [fastapi](https://pypi.org/project/fastapi/) + [uvicorn](https://pypi.org/project/uvicorn/) — Web 服务
+- [websockets](https://pypi.org/project/websockets/) — 远程动作传输
+- [watchdog](https://pypi.org/project/watchdog/) — 配置文件 watcher
+- [tomli_w](https://pypi.org/project/tomli-w/) — TOML 写回
+
+## 升级 0.2 → 0.3 注意事项
+
+- **Python 下限**：从 3.8 抬到 3.9（FastAPI 要求）。
+- **配置兼容**：旧的 `interval` / `event` 触发器、`feishu` / `dingtalk` / `publish_event` / `custom (path)` 动作配置完全兼容，**无需改动**即可升级。
+- **新增**：`[server]` 段（自动生成）、`[[tasks.triggers]] type="api"`、`[[tasks.actions]] type="custom" remote=true`。
+- **令牌**：admin / action / trigger token 都存放在 `<config_dir>/.anotiflow/tokens.json`，不要将该文件提交版本库。
+- **TOML 注释**：UI 改动会通过 `tomli_w` 写回，注释会丢失。建议把长注释放到 README 或者只通过 UI 编辑配置。

@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>anotiflow 控制台</title>
+<style>
+  :root { --bg:#0e1116; --panel:#161b22; --border:#30363d; --fg:#e6edf3; --muted:#7d8590; --accent:#2ea043; --warn:#d29922; --err:#f85149; --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--bg); color:var(--fg); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  header { background:var(--panel); border-bottom:1px solid var(--border); padding:0.75rem 1rem; display:flex; align-items:center; gap:1rem; flex-shrink:0; }
+  header h1 { margin:0; font-size:1.1rem; font-weight:600; }
+  header .grow { flex:1; }
+  header button, .btn { background:var(--panel); color:var(--fg); border:1px solid var(--border); padding:0.3rem 0.7rem; border-radius:5px; cursor:pointer; font-size:0.85rem; }
+  header button:hover, .btn:hover { border-color:var(--fg); }
+  .btn-primary { background:var(--accent); border-color:var(--accent); color:white; }
+  .btn-primary:hover { background:#3fb950; }
+  .btn-danger { background:transparent; border-color:var(--err); color:var(--err); }
+  .btn-danger:hover { background:var(--err); color:white; }
+  main { flex:1; display:grid; grid-template-columns: 280px 1fr 420px; gap:1px; background:var(--border); overflow:hidden; }
+  section { background:var(--bg); overflow-y:auto; padding:1rem; }
+  section h2 { font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin:0 0 0.75rem 0; }
+  .task-item { padding:0.6rem 0.75rem; margin-bottom:0.3rem; border:1px solid var(--border); border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:0.5rem; }
+  .task-item:hover { border-color:var(--fg); }
+  .task-item.active { background:var(--panel); border-color:var(--accent); }
+  .task-item .name { flex:1; font-weight:500; }
+  .task-item.disabled .name { color:var(--muted); text-decoration:line-through; text-decoration-color:var(--border); }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); }
+  .dot.on { background:var(--accent); }
+  /* 任务级启用/禁用开关 */
+  .toggle { position:relative; display:inline-block; width:30px; height:16px; flex-shrink:0; }
+  .toggle input { opacity:0; width:0; height:0; }
+  .toggle .slider { position:absolute; cursor:pointer; inset:0; background:var(--border); border-radius:16px; transition:0.18s; }
+  .toggle .slider::before { content:''; position:absolute; left:2px; top:2px; width:12px; height:12px; background:white; border-radius:50%; transition:0.18s; }
+  .toggle input:checked + .slider { background:var(--accent); }
+  .toggle input:checked + .slider::before { transform:translateX(14px); }
+  .toggle input:disabled + .slider { opacity:0.4; cursor:wait; }
+  .toggle:hover .slider { box-shadow:0 0 0 2px var(--bg), 0 0 0 3px var(--border); }
+  /* 任务分组 */
+  .group { margin-bottom:0.8rem; }
+  .group-header { display:flex; align-items:center; gap:0.5rem; padding:0.4rem 0.2rem; cursor:pointer; user-select:none; border-bottom:1px solid var(--border); margin-bottom:0.3rem; }
+  .group-header:hover { color:var(--fg); }
+  .group-header .chevron { width:0.6rem; display:inline-block; color:var(--muted); transition:transform 0.15s; }
+  .group.collapsed .chevron { transform:rotate(-90deg); }
+  .group.collapsed .group-body { display:none; }
+  .group-name { flex:1; font-weight:600; color:var(--fg); font-size:0.85rem; }
+  .group-count { color:var(--muted); font-size:0.75rem; }
+  .group-rename-btn { background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:0.75rem; padding:0 0.3rem; }
+  .group-rename-btn:hover { color:var(--fg); }
+  /* "indeterminate" 开关：中间横杠 */
+  .toggle input:indeterminate + .slider { background:var(--warn); }
+  .toggle input:indeterminate + .slider::before { left:9px; background:var(--bg); }
+  pre { background:var(--panel); padding:0.75rem; border-radius:6px; font-family:var(--mono); font-size:0.8rem; overflow-x:auto; white-space:pre; margin:0; color:#a5d6ff; }
+  label { display:block; color:var(--muted); font-size:0.8rem; margin-bottom:0.25rem; margin-top:0.75rem; }
+  input, select, textarea { width:100%; padding:0.4rem 0.6rem; background:var(--panel); color:var(--fg); border:1px solid var(--border); border-radius:5px; font-family:inherit; font-size:0.9rem; }
+  textarea { font-family:var(--mono); font-size:0.85rem; resize:vertical; min-height:80px; }
+  .row { display:flex; gap:0.5rem; align-items:flex-end; }
+  .row > * { flex:1; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:0.75rem; margin-bottom:0.75rem; }
+  .card-header { display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem; font-weight:600; }
+  .card-header .grow { flex:1; }
+  .tag { font-size:0.7rem; padding:0.1rem 0.5rem; border-radius:3px; background:var(--border); color:var(--fg); }
+  .tag.api { background:#1f6feb33; color:#79c0ff; }
+  .tag.event { background:#8957e533; color:#d2a8ff; }
+  .tag.interval { background:#2ea04333; color:#7ee787; }
+  .tag.remote { background:#d2992233; color:#e3b341; }
+  .token-box { font-family:var(--mono); font-size:0.75rem; background:var(--bg); padding:0.3rem 0.5rem; border-radius:3px; border:1px solid var(--border); word-break:break-all; }
+  .muted { color:var(--muted); font-size:0.85rem; }
+  .err-msg { color:var(--err); padding:0.5rem; background:#f8514920; border-radius:5px; margin-top:0.5rem; font-size:0.85rem; }
+  .ok-msg { color:#7ee787; padding:0.5rem; background:#2ea04320; border-radius:5px; margin-top:0.5rem; font-size:0.85rem; }
+  .empty { text-align:center; color:var(--muted); padding:2rem; }
+  details { margin-bottom:0.5rem; }
+  summary { cursor:pointer; padding:0.3rem 0; color:var(--muted); font-size:0.85rem; }
+  .hint { color:var(--muted); font-size:0.75rem; margin-top:0.2rem; line-height:1.4; }
+  .hint code { font-family:var(--mono); background:var(--bg); padding:0 0.25rem; border-radius:3px; color:#a5d6ff; }
+  .field-label { display:flex; align-items:baseline; gap:0.4rem; color:var(--muted); font-size:0.8rem; margin-bottom:0.2rem; margin-top:0.75rem; }
+  .field-label .req { color:var(--err); font-weight:600; }
+  .field-label .opt { color:var(--muted); font-size:0.7rem; font-style:italic; }
+  .preset-row { display:flex; flex-wrap:wrap; gap:0.3rem; margin:0.4rem 0; }
+  .preset-btn { background:transparent; border:1px dashed var(--border); color:var(--muted); padding:0.2rem 0.55rem; border-radius:3px; font-size:0.75rem; cursor:pointer; }
+  .preset-btn:hover { border-style:solid; border-color:var(--accent); color:var(--fg); }
+  optgroup { color:var(--muted); font-style:normal; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ anotiflow</h1>
+  <span class="muted" id="server-info"></span>
+  <span class="grow"></span>
+  <button onclick="reloadAll()">⟳ 刷新</button>
+  <button onclick="showTokens()">🔑 Tokens</button>
+  <button onclick="logout()">退出</button>
+</header>
+<main>
+  <section id="col-tasks">
+    <h2>Tasks
+      <span style="float:right; display:inline-flex; gap:0.3rem;">
+        <button class="btn" style="font-size:0.75rem;" onclick="newGroup()" title="新建分组">+ 分组</button>
+        <button class="btn btn-primary" style="font-size:0.75rem;" onclick="newTask()" title="新建任务">+ 任务</button>
+      </span>
+    </h2>
+    <div id="task-list"></div>
+  </section>
+  <section id="col-detail">
+    <div id="detail"></div>
+  </section>
+  <section id="col-preview">
+    <h2>config.toml 预览</h2>
+    <pre id="toml-preview"></pre>
+  </section>
+</main>
+
+<script>
+// ---- state ----
+const state = { raw: null, selected: null, serverInfo: {} };
+
+function getAdminToken() {
+  const m = document.cookie.match(/(?:^|; )admin_token=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+function authHeaders(extra = {}) {
+  const tok = getAdminToken();
+  return { 'X-Admin-Token': tok, 'Content-Type': 'application/json', ...extra };
+}
+function logout() {
+  document.cookie = 'admin_token=; path=/; max-age=0';
+  location.href = '/login';
+}
+
+async function api(method, url, body) {
+  const opts = { method, headers: authHeaders() };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const resp = await fetch(url, opts);
+  if (resp.status === 401 || resp.status === 403) { location.href = '/login'; return null; }
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+    throw new Error(err.detail || resp.statusText);
+  }
+  if (resp.status === 204) return null;
+  return resp.json();
+}
+
+// ---- render ----
+function render() {
+  const listEl = document.getElementById('task-list');
+  const tasks = (state.raw && state.raw.tasks) || [];
+  if (!tasks.length) {
+    listEl.innerHTML = '<div class="empty">还没有任务<br/><small>点击右上角 + 新建</small></div>';
+  } else {
+    // 按 group 聚合（保留任务原顺序）
+    const groups = new Map();
+    for (const t of tasks) {
+      const g = (t.group || 'default').toString();
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(t);
+    }
+    // 折叠状态从 localStorage 读
+    const collapsed = JSON.parse(localStorage.getItem('group-collapsed') || '{}');
+    const blocks = [];
+    for (const [groupName, members] of groups) {
+      const total = members.length;
+      const enabledCount = members.filter(t => t.enabled !== false).length;
+      const allOn = enabledCount === total;
+      const allOff = enabledCount === 0;
+      const isDefault = groupName === 'default';
+      const safeGroup = escapeAttr(groupName);
+      const isCollapsed = !!collapsed[groupName];
+      blocks.push(`
+        <div class="group ${isCollapsed?'collapsed':''}" data-group="${safeGroup}">
+          <div class="group-header" onclick="toggleGroupCollapse('${safeGroup}')">
+            <span class="chevron">▼</span>
+            <label class="toggle" title="${allOn?'禁用整组':allOff?'启用整组':'全部启用'}" onclick="event.stopPropagation()">
+              <input type="checkbox" ${allOn?'checked':''} data-group-toggle="${safeGroup}" onchange="toggleGroupEnabled('${safeGroup}', this)" />
+              <span class="slider"></span>
+            </label>
+            <span class="group-name">${isDefault?'<span class="muted" style="font-weight:400;">未分组</span>':escapeHtml(groupName)}</span>
+            <span class="group-count">${enabledCount}/${total}</span>
+            <button class="group-rename-btn" title="在本分组新建任务" onclick="event.stopPropagation(); newTask('${safeGroup}')">+</button>
+            ${isDefault?'':`<button class="group-rename-btn" title="重命名分组" onclick="event.stopPropagation(); renameGroup('${safeGroup}')">✎</button>`}
+          </div>
+          <div class="group-body">
+            ${members.map(t => taskItemHtml(t)).join('')}
+          </div>
+        </div>
+      `);
+    }
+    listEl.innerHTML = blocks.join('');
+    // 把混合态的组开关设成 indeterminate
+    listEl.querySelectorAll('input[data-group-toggle]').forEach(el => {
+      const g = el.getAttribute('data-group-toggle');
+      const members = groups.get(g) || [];
+      const total = members.length;
+      const en = members.filter(t => t.enabled !== false).length;
+      el.indeterminate = en > 0 && en < total;
+    });
+  }
+
+  const detailEl = document.getElementById('detail');
+  if (!state.selected) {
+    detailEl.innerHTML = '<div class="empty">从左侧选择一个任务查看 / 编辑<br/><br/>或点击 + 新建</div>';
+  } else {
+    const task = tasks.find(t => t.name === state.selected);
+    if (!task) { state.selected = null; return render(); }
+    detailEl.innerHTML = renderTaskEditor(task);
+  }
+
+  document.getElementById('toml-preview').textContent = rawToToml(state.raw);
+}
+
+function taskItemHtml(t) {
+  const active = state.selected === t.name ? 'active' : '';
+  const enabled = t.enabled !== false;
+  const safeName = escapeAttr(t.name);
+  return `<div class="task-item ${active} ${enabled?'':'disabled'}" onclick="selectTask('${safeName}')">
+    <label class="toggle" title="${enabled?'禁用任务':'启用任务'}" onclick="event.stopPropagation()">
+      <input type="checkbox" ${enabled?'checked':''} onchange="toggleTaskEnabled('${safeName}', this)" />
+      <span class="slider"></span>
+    </label>
+    <span class="name">${escapeHtml(t.name)}</span>
+    <span class="muted" title="triggers / actions 数量">${(t.triggers||[]).length}T/${(t.actions||[]).length}A</span>
+  </div>`;
+}
+
+function renderTaskEditor(task) {
+  const enabled = task.enabled !== false;
+  const triggers = task.triggers || [];
+  const actions = task.actions || [];
+  // 收集已有分组名（不含当前任务自身的 group 也行，给 datalist 用）
+  const allGroups = Array.from(new Set(((state.raw && state.raw.tasks) || [])
+    .map(t => t.group || 'default')));
+  const curGroup = task.group || 'default';
+  return `
+    <h2>Task: ${escapeHtml(task.name)}
+      <button class="btn btn-danger" style="float:right; font-size:0.75rem;" onclick="deleteTask('${escapeAttr(task.name)}')">删除任务</button>
+    </h2>
+    <div class="card">
+      <div class="row">
+        <div>${labelEl('name','任务名（同一配置内必须唯一）',true)}
+          <input id="t-name" value="${escapeAttr(task.name)}" />
+        </div>
+        <div style="flex:0 0 140px;">${labelEl('enabled','是否启用',true)}
+          <select id="t-enabled">
+            <option value="true" ${enabled?'selected':''}>true（启用）</option>
+            <option value="false" ${!enabled?'selected':''}>false（禁用）</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div>${labelEl('group','分组（可选，用于左侧聚合 + 整组启停）',false)}
+          <input id="t-group" list="t-group-list" value="${escapeAttr(curGroup)}" placeholder="default（未分组）" />
+          <datalist id="t-group-list">
+            ${allGroups.map(g => `<option value="${escapeAttr(g)}"></option>`).join('')}
+          </datalist>
+          <div class="hint">输入新名字直接创建分组；保留空 / 填 <code>default</code> 表示未分组。</div>
+        </div>
+      </div>
+      ${labelEl('任务级自定义字段','JSON 形式；模板里用 {task.config[xxx]} 引用',false)}
+      <textarea id="t-extras">${escapeHtml(JSON.stringify(extractExtras(task, ['name','enabled','group','triggers','actions']), null, 2))}</textarea>
+    </div>
+
+    <h2>Triggers
+      <button class="btn" style="float:right; font-size:0.75rem;" onclick="addTrigger()">+ 添加触发器</button>
+    </h2>
+    ${triggers.map((tr, i) => renderTriggerCard(tr, i)).join('') || '<div class="muted">（无触发器）</div>'}
+
+    <h2 style="margin-top:1rem;">Actions
+      <button class="btn" style="float:right; font-size:0.75rem;" onclick="addAction()">+ 添加动作</button>
+    </h2>
+    ${actions.map((a, i) => renderActionCard(a, i)).join('') || '<div class="muted">（无动作）</div>'}
+
+    <div style="margin-top:1rem; display:flex; gap:0.5rem;">
+      <button class="btn btn-primary" onclick="saveTask()">保存</button>
+      <button class="btn" onclick="selectTask(null)">取消</button>
+      <span id="save-msg" class="grow" style="align-self:center;"></span>
+    </div>
+  `;
+}
+
+function renderTriggerCard(tr, idx) {
+  const type = tr.type || 'interval';
+  const tagCls = type;
+  const TYPE_OPTS = [
+    { v:'interval', label:'interval', desc:'定时触发（秒/分/时/天/周/星期 + at/until）' },
+    { v:'event',    label:'event',    desc:'订阅 EventBus 内部事件，由 publish_event 等动作广播' },
+    { v:'api',      label:'api',      desc:'外部 webhook，POST /trigger/<token> 即触发' },
+  ];
+  return `
+    <div class="card">
+      <div class="card-header">
+        <span class="tag ${tagCls}">${type}</span>
+        <span>${escapeHtml(tr.name || `${type}#${idx}`)}</span>
+        <span class="grow"></span>
+        <button class="btn btn-danger" style="font-size:0.7rem;" onclick="removeTrigger(${idx})">删除</button>
+      </div>
+      <div class="row">
+        <div>${labelEl('type','触发器类型',true)}
+          ${selectEl({ scope:'tr', idx, k:'type', value:type, options:TYPE_OPTS, onchange:'onTriggerChange(this)' })}
+          <div class="hint">${escapeHtml(TYPE_OPTS.find(o=>o.v===type)?.desc || '')}</div>
+        </div>
+        <div>${labelEl('name','触发器名称（可选，模板里通过 {trigger.config[name]} 访问）',false)}
+          ${textInput({ scope:'tr', idx, k:'name', value:tr.name||'', placeholder:`默认 ${type}#${idx}` , onchange:'onTriggerChange(this)'})}
+        </div>
+      </div>
+      ${triggerFields(tr, idx)}
+      ${type === 'api' ? renderApiTriggerHelp(tr) : ''}
+    </div>
+  `;
+}
+
+function renderApiTriggerHelp(tr) {
+  if (!tr.token) {
+    return `<div class="hint" style="margin-top:0.6rem;">💡 保存任务后会自动签发 token，并在此处给出 webhook URL。</div>`;
+  }
+  const url = `${location.origin}/trigger/${tr.token}`;
+  return `
+    <label>Webhook URL</label>
+    <div class="token-box">POST ${escapeHtml(url)}</div>
+    <div class="hint">外部使用：<code>curl -X POST ${escapeHtml(url)} -H 'Content-Type: application/json' -d '{"key":"value"}'</code><br/>POST body 即 trigger.payload，模板里用 <code>{trigger.payload[key]}</code> 引用。</div>
+  `;
+}
+
+const UNIT_OPTIONS = [
+  { group:'时间单位', items:[
+    { v:'seconds', label:'seconds —— 秒（复数可与 every 配合）' },
+    { v:'second',  label:'second  —— 秒（单数）' },
+    { v:'minutes', label:'minutes —— 分钟（复数）' },
+    { v:'minute',  label:'minute  —— 分钟（单数）' },
+    { v:'hours',   label:'hours   —— 小时（复数）' },
+    { v:'hour',    label:'hour    —— 小时（单数）' },
+    { v:'days',    label:'days    —— 天（复数）' },
+    { v:'day',     label:'day     —— 天（单数，常配 at="09:30"）' },
+    { v:'weeks',   label:'weeks   —— 周（复数）' },
+    { v:'week',    label:'week    —— 周（单数）' },
+  ]},
+  { group:'按星期（不能与 every/to 同用）', items:[
+    { v:'monday',    label:'monday    —— 每周一' },
+    { v:'tuesday',   label:'tuesday   —— 每周二' },
+    { v:'wednesday', label:'wednesday —— 每周三' },
+    { v:'thursday',  label:'thursday  —— 每周四' },
+    { v:'friday',    label:'friday    —— 每周五' },
+    { v:'saturday',  label:'saturday  —— 每周六' },
+    { v:'sunday',    label:'sunday    —— 每周日' },
+  ]},
+];
+
+function triggerFields(tr, idx) {
+  const type = tr.type;
+  if (type === 'interval') {
+    const isWeekday = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].includes(tr.unit);
+    return `
+      <div class="preset-row">
+        <span class="muted" style="font-size:0.75rem; margin-right:0.3rem; align-self:center;">⚡ 快速预设：</span>
+        <button class="preset-btn" onclick="presetInterval(${idx},{unit:'seconds',every:5})">每 5 秒</button>
+        <button class="preset-btn" onclick="presetInterval(${idx},{unit:'minutes',every:1})">每分钟</button>
+        <button class="preset-btn" onclick="presetInterval(${idx},{unit:'minute',at:':23'})">每分钟第 23 秒</button>
+        <button class="preset-btn" onclick="presetInterval(${idx},{unit:'hour',every:1})">每小时</button>
+        <button class="preset-btn" onclick="presetInterval(${idx},{unit:'day',at:'09:30'})">每天 09:30</button>
+        <button class="preset-btn" onclick="presetInterval(${idx},{unit:'monday',at:'13:15'})">每周一 13:15</button>
+        <button class="preset-btn" onclick="presetInterval(${idx},{unit:'seconds',every:5,to:10})">每 5~10 秒随机</button>
+      </div>
+      <div class="row">
+        <div>${labelEl('unit','时间单位',true)}
+          ${selectGroupEl({ scope:'tr', idx, k:'unit', value:tr.unit||'seconds', groups:UNIT_OPTIONS, onchange:'onTriggerChange(this, true)' })}
+        </div>
+        <div>${labelEl('every','间隔次数',!isWeekday)}
+          ${numberInput({ scope:'tr', idx, k:'every', value:tr.every, placeholder:isWeekday?'（按星期不可填）':'例如 5', min:1, disabled:isWeekday, onchange:'onTriggerChange(this)' })}
+          <div class="hint">${isWeekday?'按星期触发时，此项必须留空。':'与 unit 配合，如 <code>every=5, unit=seconds</code> 表示每 5 秒。'}</div>
+        </div>
+        <div>${labelEl('at','精确时刻',false)}
+          ${textInput({ scope:'tr', idx, k:'at', value:tr.at||'', placeholder:'例如 09:30 或 :23', onchange:'onTriggerChange(this)' })}
+          <div class="hint"><code>HH:MM</code> 配合 day/weekday；<code>:SS</code> 配合 minute。</div>
+        </div>
+      </div>
+      <details><summary>高级（to 随机区间 / until 截止时刻）</summary>
+        <div class="row">
+          <div>${labelEl('to','随机区间上限',false)}
+            ${numberInput({ scope:'tr', idx, k:'to', value:tr.to, placeholder:'≥ every', min:1, onchange:'onTriggerChange(this)' })}
+            <div class="hint">配合 every，形成 <code>[every, to]</code> 的随机间隔。</div>
+          </div>
+          <div>${labelEl('until','截止时刻',false)}
+            ${textInput({ scope:'tr', idx, k:'until', value:tr.until||'', placeholder:'18:30 或 2026-12-31 23:59', onchange:'onTriggerChange(this)' })}
+            <div class="hint">到达此时刻后停止触发。</div>
+          </div>
+        </div>
+      </details>`;
+  }
+  if (type === 'event') {
+    return `${labelEl('event','事件名',true)}
+      ${textInput({ scope:'tr', idx, k:'event', value:tr.event||'', placeholder:'例如 stock.high', onchange:'onTriggerChange(this)' })}
+      <div class="hint">订阅 EventBus 上对应名字的事件。命名建议用 <code>domain.action</code> 风格，与 publish_event 动作里的事件名保持一致。</div>`;
+  }
+  if (type === 'api') {
+    return ''; // token 在 renderApiTriggerHelp 单独显示
+  }
+  return '';
+}
+
+function renderActionCard(a, idx) {
+  const type = a.type || 'publish_event';
+  const isRemote = type === 'custom' && a.remote;
+  const tagCls = isRemote ? 'remote' : '';
+  const TYPE_OPTS = [
+    { v:'feishu',         label:'feishu',         desc:'飞书群机器人；需要 webhook token + secret' },
+    { v:'dingtalk',       label:'dingtalk',       desc:'钉钉群机器人；需要 webhook token + secret + title' },
+    { v:'publish_event',  label:'publish_event',  desc:'向内部 EventBus 广播事件，串联其他 event 触发器' },
+    { v:'custom',         label:'custom',         desc:'自定义动作；可选本地 Python path 或远程 SDK' },
+  ];
+  return `
+    <div class="card">
+      <div class="card-header">
+        <span class="tag ${tagCls}">${isRemote ? 'custom-remote' : type}</span>
+        <span class="grow"></span>
+        <button class="btn btn-danger" style="font-size:0.7rem;" onclick="removeAction(${idx})">删除</button>
+      </div>
+      <div class="row">
+        <div>${labelEl('type','动作类型',true)}
+          ${selectEl({ scope:'ac', idx, k:'type', value:type, options:TYPE_OPTS, onchange:'onActionTypeChange(this)' })}
+          <div class="hint">${escapeHtml(TYPE_OPTS.find(o=>o.v===type)?.desc||'')}</div>
+        </div>
+        ${type === 'custom' ? `
+        <div style="flex:0 0 200px;">${labelEl('remote','执行位置',true)}
+          ${selectEl({ scope:'ac', idx, k:'remote', value:String(!!a.remote), options:[
+            { v:'false', label:'本地（dotted-path）', desc:'宿主进程动态 import 一个 fn(context) 函数' },
+            { v:'true',  label:'远程（SDK 客户端）',  desc:'WebSocket 推送到另一台机器的 RemoteAction 客户端' },
+          ], onchange:'onActionChange(this, true)' })}
+        </div>` : ''}
+      </div>
+      ${actionFields(a, idx)}
+    </div>
+  `;
+}
+
+function actionFields(a, idx) {
+  const type = a.type;
+  if (type === 'feishu' || type === 'dingtalk') {
+    return `
+      ${labelEl('token','Webhook Token',true)}
+      ${textInput({ scope:'ac', idx, k:'token', value:a.token||'', placeholder:type==='feishu'?'飞书群机器人 webhook 的 access_token':'钉钉自定义机器人 access_token', onchange:'onActionChange(this)' })}
+      <div class="hint">${type==='feishu'?'飞书群「设置 → 群机器人 → 添加自定义机器人」获取，URL 末尾即 token。':'钉钉群「智能群助手 → 添加机器人 → 自定义」获取。'}</div>
+
+      ${labelEl('secret','签名密钥',false)}
+      ${textInput({ scope:'ac', idx, k:'secret', value:a.secret||'', placeholder:'若机器人开启了「加签」安全设置，填这里', onchange:'onActionChange(this)' })}
+
+      ${type==='dingtalk' ? `
+        ${labelEl('title','消息标题',false)}
+        ${textInput({ scope:'ac', idx, k:'title', value:a.title||'', placeholder:'钉钉 Markdown 通知的标题', onchange:'onActionChange(this)' })}
+      ` : ''}
+
+      ${labelEl('message_template','消息模板',true)}
+      <textarea data-ac="${idx}" data-k="message_template" placeholder="支持 {task.config[xxx]} / {trigger.config[xxx]} / {trigger.fired_at} / {trigger.payload[xxx]}" onchange="onActionChange(this)">${escapeHtml(a.message_template||'')}</textarea>
+      <div class="hint">Python <code>str.format</code> 语法。常用占位符：<code>{task.config[name]}</code>、<code>{trigger.fired_at}</code>、<code>{trigger.payload[xxx]}</code>。</div>
+    `;
+  }
+  if (type === 'publish_event') {
+    return `
+      ${labelEl('event','事件名',true)}
+      ${textInput({ scope:'ac', idx, k:'event', value:a.event||'', placeholder:'例如 stock.high', onchange:'onActionChange(this)' })}
+      <div class="hint">建议 <code>domain.action</code> 风格；下游用 <code>type="event"</code> 触发器订阅同名事件。</div>
+
+      ${labelEl('payload (JSON)','载荷模板',false)}
+      <textarea data-ac="${idx}" data-k="payload" placeholder='{"key": "{trigger.payload[key]}"}' onchange="onActionChange(this, true)">${escapeHtml(JSON.stringify(a.payload||{}, null, 2))}</textarea>
+      <div class="hint">value 中的字符串会用 context 渲染（同 message_template）。非字符串值原样透传。</div>
+    `;
+  }
+  if (type === 'custom') {
+    if (a.remote) {
+      const tok = a.token || '';
+      const snippet = tok ? sdkSnippet(tok) : '# token 会在保存任务后自动签发，并在此处显示完整 SDK 片段';
+      return `
+        ${labelEl('token','远程动作令牌',false)}
+        <div class="token-box">${escapeHtml(tok || '（保存后自动签发）')}</div>
+        <div class="hint">客户端用此 token 通过 WebSocket 接入；可在 Tokens 面板吊销后重发。</div>
+
+        ${labelEl('timeout_seconds','等待超时（秒）',false)}
+        ${numberInput({ scope:'ac', idx, k:'timeout_seconds', value:a.timeout_seconds??30, min:1, max:600, placeholder:'30', onchange:'onActionChange(this, true)' })}
+        <div class="hint">仅 wait=true 时生效。超时后该次动作记为失败但不影响后续动作。</div>
+
+        ${labelEl('wait','派发模式',true)}
+        ${selectEl({ scope:'ac', idx, k:'wait', value:String(a.wait!==false), options:[
+          { v:'true',  label:'true —— 等待客户端回包', desc:'阻塞当前任务直到客户端返回，可用 publish_on_success 把返回值串入事件总线' },
+          { v:'false', label:'false —— fire-and-forget', desc:'推送后立即返回，不等待结果' },
+        ], onchange:'onActionChange(this, true)' })}
+
+        ${labelEl('offline_policy','客户端离线策略',true)}
+        ${selectEl({ scope:'ac', idx, k:'offline_policy', value:a.offline_policy||'queue', options:[
+          { v:'queue', label:'queue —— 堆积（推荐）', desc:'客户端未连接时把 envelope 入队，连接恢复后逐个补发' },
+          { v:'drop',  label:'drop  —— 丢弃',         desc:'客户端不在线则丢弃此次调用，仅写日志' },
+          { v:'error', label:'error —— 抛错',         desc:'客户端不在线则抛异常（被任务级错误处理捕获）' },
+        ], onchange:'onActionChange(this)' })}
+
+        ${labelEl('publish_on_success','成功回包后广播事件',false)}
+        ${textInput({ scope:'ac', idx, k:'publish_on_success', value:a.publish_on_success||'', placeholder:'例如 mytask.done（留空则不广播）', onchange:'onActionChange(this)' })}
+        <div class="hint">客户端返回 <code>ok=true</code> 时，把 <code>{value, from}</code> 作为 payload 广播到 EventBus。</div>
+
+        <label>客户端 SDK 片段（直接复制到客户端机器即可）</label>
+        <pre>${escapeHtml(snippet)}</pre>
+      `;
+    }
+    return `
+      ${labelEl('path','dotted-path',true)}
+      ${textInput({ scope:'ac', idx, k:'path', value:a.path||'', placeholder:'例如 examples.user_actions.check_stock_price', onchange:'onActionChange(this)' })}
+      <div class="hint">指向一个 <code>fn(context) -> None</code> 的 Python 函数。<br/>解析路径：CWD 与 config 文件所在目录都自动加入 <code>sys.path</code>。</div>
+    `;
+  }
+  return '';
+}
+
+// ---- 表单基础组件 ----
+function labelEl(name, title, required) {
+  const req = required ? '<span class="req">*</span>' : '<span class="opt">可选</span>';
+  return `<div class="field-label"><strong>${escapeHtml(name)}</strong>${req}<span style="color:var(--muted);">${escapeHtml(title)}</span></div>`;
+}
+function textInput({ scope, idx, k, value='', placeholder='', onchange='' }) {
+  return `<input data-${scope}="${idx}" data-k="${k}" value="${escapeAttr(value??'')}" placeholder="${escapeAttr(placeholder)}" onchange="${onchange}" />`;
+}
+function numberInput({ scope, idx, k, value, placeholder='', min=null, max=null, disabled=false, onchange='' }) {
+  const minA = min !== null ? `min="${min}"` : '';
+  const maxA = max !== null ? `max="${max}"` : '';
+  const dis = disabled ? 'disabled' : '';
+  const v = value === undefined || value === null || value === '' ? '' : value;
+  return `<input type="number" data-${scope}="${idx}" data-k="${k}" value="${v}" placeholder="${escapeAttr(placeholder)}" ${minA} ${maxA} ${dis} onchange="${onchange}" />`;
+}
+function selectEl({ scope, idx, k, value, options, onchange='' }) {
+  // options: [{v,label,desc?}]
+  return `<select data-${scope}="${idx}" data-k="${k}" onchange="${onchange}">
+    ${options.map(o => `<option value="${escapeAttr(o.v)}" ${String(o.v)===String(value)?'selected':''} title="${escapeAttr(o.desc||'')}">${escapeHtml(o.label)}</option>`).join('')}
+  </select>`;
+}
+function selectGroupEl({ scope, idx, k, value, groups, onchange='' }) {
+  // groups: [{group, items:[{v,label}]}]
+  return `<select data-${scope}="${idx}" data-k="${k}" onchange="${onchange}">
+    ${groups.map(g => `<optgroup label="${escapeAttr(g.group)}">
+      ${g.items.map(o => `<option value="${escapeAttr(o.v)}" ${String(o.v)===String(value)?'selected':''}>${escapeHtml(o.label)}</option>`).join('')}
+    </optgroup>`).join('')}
+  </select>`;
+}
+
+// ---- preset helper ----
+function presetInterval(idx, preset) {
+  const task = currentTask();
+  // 清空当前 trigger 的所有 schedule 字段，再合并 preset
+  const tr = task.triggers[idx];
+  ['unit','every','to','at','until'].forEach(k => delete tr[k]);
+  Object.assign(tr, preset);
+  render();
+}
+
+function sdkSnippet(token) {
+  const host = location.hostname;
+  const port = location.port || (location.protocol==='https:'?'443':'80');
+  const wsScheme = location.protocol === 'https:' ? 'wss' : 'ws';
+  return `from anotiflow import RemoteAction
+
+action = RemoteAction("${wsScheme}://${host}:${port}", token="${token}")
+
+@action.handler
+def my_action(ctx):
+    # ctx.task.config / ctx.trigger.config / ctx.trigger.payload / ctx.trigger.fired_at
+    print(f"fired: task={ctx.task.name} trigger={ctx.trigger.name} payload={ctx.trigger.payload}")
+    return {"ok": True}
+
+action.run()   # blocks
+`;
+}
+
+// ---- mutations ----
+function onTriggerChange(el, rerender) {
+  const idx = +el.dataset.tr;
+  const k = el.dataset.k;
+  const task = currentTask();
+  const tr = task.triggers[idx];
+  const v = coerce(el.value);
+  // 切换 type 时重置字段，避免残留字段污染配置
+  if (k === 'type' && v !== tr.type) {
+    const old = tr;
+    const reset = { type: v };
+    if (old.name) reset.name = old.name;
+    if (v === 'interval') { reset.unit = 'seconds'; reset.every = 5; }
+    if (v === 'event')    { reset.event = ''; }
+    task.triggers[idx] = reset;
+    render();
+    return;
+  }
+  tr[k] = v;
+  // 切换 unit 为 weekday 时清空 every/to（避免 loader 校验失败）
+  if (k === 'unit') {
+    const isWeekday = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].includes(v);
+    if (isWeekday) { delete tr.every; delete tr.to; }
+    else if (tr.every === undefined) tr.every = 1;
+  }
+  if (rerender) render(); else saveLocal(task);
+}
+function onActionChange(el, rerender) {
+  const idx = +el.dataset.ac;
+  const k = el.dataset.k;
+  const task = currentTask();
+  const a = task.actions[idx];
+  let v = el.value;
+  if (k === 'payload') {
+    try { v = JSON.parse(v); } catch { return; }
+  } else { v = coerce(v); }
+  // 切换 custom 的本地/远程时清空对方字段
+  if (k === 'remote' && v !== !!a.remote) {
+    const keep = { type:'custom', remote: !!v };
+    if (v) { keep.wait = true; keep.timeout_seconds = 30; keep.offline_policy = 'queue'; }
+    task.actions[idx] = keep;
+    render();
+    return;
+  }
+  a[k] = v;
+  if (rerender) render();
+}
+function onActionTypeChange(el) {
+  const idx = +el.dataset.ac;
+  const task = currentTask();
+  // 切 type 时重置该 action（保留 type），避免残留字段污染配置
+  task.actions[idx] = { type: el.value };
+  render();
+}
+function coerce(v) {
+  if (v === '') return undefined;
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  if (!isNaN(v) && /^-?\d+(\.\d+)?$/.test(v)) return +v;
+  return v;
+}
+function currentTask() {
+  return state.raw.tasks.find(t => t.name === state.selected);
+}
+function saveLocal(task) {
+  // 轻量同步（仅预览更新，不落服务端）
+  document.getElementById('toml-preview').textContent = rawToToml(state.raw);
+}
+
+// ---- task-level actions ----
+function addTrigger() {
+  const task = currentTask();
+  task.triggers = task.triggers || [];
+  task.triggers.push({ type:'interval', unit:'seconds', every:10 });
+  render();
+}
+function removeTrigger(idx) {
+  const task = currentTask();
+  task.triggers.splice(idx, 1);
+  render();
+}
+function addAction() {
+  const task = currentTask();
+  task.actions = task.actions || [];
+  task.actions.push({ type:'publish_event', event:'hello' });
+  render();
+}
+function removeAction(idx) {
+  const task = currentTask();
+  task.actions.splice(idx, 1);
+  render();
+}
+async function saveTask() {
+  const task = currentTask();
+  const nameEl = document.getElementById('t-name');
+  const enabledEl = document.getElementById('t-enabled');
+  const groupEl = document.getElementById('t-group');
+  const extrasEl = document.getElementById('t-extras');
+  const newName = nameEl.value.trim();
+  if (!newName) { flash('err','name 不能为空'); return; }
+  task.name = newName;
+  task.enabled = enabledEl.value === 'true';
+  // group：空 / "default" → 不写字段，保持配置干净
+  const groupVal = (groupEl?.value || '').trim();
+  if (!groupVal || groupVal === 'default') delete task.group;
+  else task.group = groupVal;
+  try {
+    const extras = JSON.parse(extrasEl.value || '{}');
+    for (const [k, v] of Object.entries(extras)) task[k] = v;
+  } catch (e) { flash('err','自定义字段 JSON 非法: '+e.message); return; }
+
+  state.selected = newName;
+  try {
+    const res = await api('PUT', '/api/config', state.raw);
+    state.raw = res;
+    flash('ok','已保存');
+    render();
+  } catch (e) { flash('err', e.message); }
+}
+async function deleteTask(name) {
+  if (!confirm(`确定删除 ${name}?`)) return;
+  try {
+    const res = await api('DELETE', `/api/tasks/${encodeURIComponent(name)}`);
+    state.raw = res;
+    state.selected = null;
+    render();
+  } catch (e) { alert(e.message); }
+}
+async function toggleTaskEnabled(name, checkboxEl) {
+  // 即时反馈：先把 checkbox 置 disabled，避免连击
+  const desired = checkboxEl.checked;   // 浏览器已经把视觉切到目标态
+  checkboxEl.disabled = true;
+  try {
+    const res = await api('PATCH', `/api/tasks/${encodeURIComponent(name)}`, { enabled: desired });
+    state.raw = res;
+    render();
+    flashGlobal(desired ? `已启用 ${name}` : `已禁用 ${name}`);
+  } catch (e) {
+    // 回滚视觉状态
+    checkboxEl.checked = !desired;
+    checkboxEl.disabled = false;
+    alert(`切换失败: ${e.message}`);
+  }
+}
+async function toggleGroupEnabled(groupName, checkboxEl) {
+  // indeterminate 时点击 = 全启用；其他态正常翻转
+  const desired = checkboxEl.checked;
+  checkboxEl.disabled = true;
+  try {
+    const res = await api('PATCH', `/api/groups/${encodeURIComponent(groupName)}`, { enabled: desired });
+    state.raw = res.config || res;
+    const groupLabel = groupName === 'default' ? '未分组' : groupName;
+    flashGlobal(desired ? `已启用整组「${groupLabel}」（${(res.matched||[]).length} 个任务）` : `已禁用整组「${groupLabel}」`);
+    render();
+  } catch (e) {
+    checkboxEl.checked = !desired;
+    checkboxEl.disabled = false;
+    alert(`切换分组失败: ${e.message}`);
+  }
+}
+function toggleGroupCollapse(groupName) {
+  const collapsed = JSON.parse(localStorage.getItem('group-collapsed') || '{}');
+  collapsed[groupName] = !collapsed[groupName];
+  localStorage.setItem('group-collapsed', JSON.stringify(collapsed));
+  // 直接切 class 以避免整页 rerender
+  const block = document.querySelector(`.group[data-group="${cssEscape(groupName)}"]`);
+  if (block) block.classList.toggle('collapsed');
+}
+async function renameGroup(oldName) {
+  const newName = prompt(`重命名分组 "${oldName}" 为：`, oldName);
+  if (!newName || newName === oldName) return;
+  // 把所有 group=oldName 的 task 改成 newName
+  const cur = JSON.parse(JSON.stringify(state.raw));
+  let touched = 0;
+  for (const t of cur.tasks || []) {
+    if ((t.group || 'default') === oldName) {
+      if (newName === 'default') delete t.group;
+      else t.group = newName;
+      touched++;
+    }
+  }
+  try {
+    const res = await api('PUT', '/api/config', cur);
+    state.raw = res;
+    render();
+    flashGlobal(`已重命名 ${touched} 个任务的分组：${oldName} → ${newName}`);
+  } catch (e) { alert(e.message); }
+}
+function cssEscape(s) {
+  // 用于 querySelector 拼接
+  return String(s).replace(/(["\\])/g, '\\$1');
+}
+function flashGlobal(msg) {
+  // 顶部居中浮层提示，2 秒消失
+  let el = document.getElementById('global-flash');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'global-flash';
+    el.style.cssText = 'position:fixed; top:60px; left:50%; transform:translateX(-50%); background:var(--accent); color:white; padding:0.5rem 1rem; border-radius:6px; font-size:0.9rem; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,0.4); transition:opacity 0.3s; pointer-events:none;';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(flashGlobal._t);
+  flashGlobal._t = setTimeout(() => { el.style.opacity = '0'; }, 1500);
+}
+function newTask(group) {
+  const name = prompt(group ? `在分组「${group === 'default' ? '未分组' : group}」新建任务：` : '新任务名');
+  if (!name) return;
+  state.raw.tasks = state.raw.tasks || [];
+  if (state.raw.tasks.some(t => t.name === name)) { alert('name 已存在'); return; }
+  const task = {
+    name, enabled: true,
+    triggers: [{ type:'interval', unit:'seconds', every:10 }],
+    actions: [{ type:'publish_event', event:'hello' }],
+  };
+  if (group && group !== 'default') task.group = group;
+  state.raw.tasks.push(task);
+  state.selected = name;
+  render();
+}
+function newGroup() {
+  const name = prompt('新分组名（输入已存在的分组名也会被归并）：');
+  if (!name || !name.trim()) return;
+  const g = name.trim();
+  if (g === 'default') { alert('default 是保留的"未分组"名字'); return; }
+  // 立刻在分组下新建一个任务（空分组无法持久化；user 可稍后改 group 字段）
+  newTask(g);
+}
+function selectTask(name) { state.selected = name; render(); }
+function flash(type, msg) {
+  const el = document.getElementById('save-msg');
+  if (!el) { alert(msg); return; }
+  el.className = type === 'ok' ? 'ok-msg' : 'err-msg';
+  el.textContent = msg;
+  setTimeout(() => { el.textContent = ''; el.className=''; }, 3000);
+}
+
+// ---- tokens panel ----
+async function showTokens() {
+  try {
+    const list = await api('GET', '/api/tokens?include_revoked=false');
+    const html = `
+      <h2>Tokens</h2>
+      ${list.length ? list.map(t => `
+        <div class="card">
+          <div class="card-header">
+            <span class="tag">${t.scope}</span>
+            <span>${escapeHtml(t.label || t.subject)}</span>
+            <span class="grow"></span>
+            <button class="btn btn-danger" style="font-size:0.7rem;" onclick="revokeToken('${t.id}')">吊销</button>
+          </div>
+          <div class="token-box">${escapeHtml(t.id)}</div>
+          <div class="muted">${escapeHtml(t.created_at)}  ·  subject=${escapeHtml(t.subject)}</div>
+        </div>
+      `).join('') : '<div class="empty">暂无 token</div>'}
+      <button class="btn" onclick="render()">← 返回任务</button>
+    `;
+    document.getElementById('detail').innerHTML = html;
+  } catch (e) { alert(e.message); }
+}
+async function revokeToken(id) {
+  if (!confirm('吊销后任何客户端将无法连接。确定？')) return;
+  try { await api('DELETE', `/api/tokens/${id}`); showTokens(); } catch (e) { alert(e.message); }
+}
+
+// ---- util ----
+function escapeHtml(s) { return String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeAttr(s) { return escapeHtml(s); }
+function extractExtras(obj, omit) {
+  const o = {};
+  for (const k in obj) if (!omit.includes(k)) o[k] = obj[k];
+  return o;
+}
+function rawToToml(raw) {
+  // 简易 TOML 预览：只求能看（不追求严格）
+  if (!raw) return '';
+  const lines = [];
+  if (raw.server) { lines.push('[server]'); for (const [k,v] of Object.entries(raw.server)) lines.push(`${k} = ${tomlVal(v)}`); lines.push(''); }
+  for (const t of (raw.tasks || [])) {
+    lines.push('[[tasks]]');
+    for (const [k,v] of Object.entries(t)) {
+      if (k === 'triggers' || k === 'actions') continue;
+      lines.push(`${k} = ${tomlVal(v)}`);
+    }
+    for (const tr of (t.triggers||[])) {
+      lines.push('');
+      lines.push('[[tasks.triggers]]');
+      for (const [k,v] of Object.entries(tr)) lines.push(`${k} = ${tomlVal(v)}`);
+    }
+    for (const a of (t.actions||[])) {
+      lines.push('');
+      lines.push('[[tasks.actions]]');
+      for (const [k,v] of Object.entries(a)) {
+        if (k === 'payload' && typeof v === 'object') continue;
+        lines.push(`${k} = ${tomlVal(v)}`);
+      }
+      if (a.payload && typeof a.payload === 'object') {
+        lines.push('[tasks.actions.payload]');
+        for (const [k,v] of Object.entries(a.payload)) lines.push(`${k} = ${tomlVal(v)}`);
+      }
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+function tomlVal(v) {
+  if (v === undefined || v === null) return '""';
+  if (typeof v === 'string') return `"${v.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,'\\n')}"`;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return '[' + v.map(tomlVal).join(', ') + ']';
+  if (typeof v === 'object') return '{ ' + Object.entries(v).map(([k,v])=>`${k} = ${tomlVal(v)}`).join(', ') + ' }';
+  return '""';
+}
+
+// ---- bootstrap ----
+async function reloadAll() {
+  try {
+    state.raw = await api('GET', '/api/config');
+    state.serverInfo = state.raw.server || {};
+    document.getElementById('server-info').textContent = `${state.serverInfo.host||'?'}:${state.serverInfo.port||'?'}`;
+    render();
+  } catch (e) {
+    document.getElementById('detail').innerHTML = `<div class="err-msg">加载失败: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+if (!getAdminToken()) { location.href = '/login'; }
+else reloadAll();
+</script>
+</body>
+</html>

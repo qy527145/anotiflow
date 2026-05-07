@@ -2,6 +2,15 @@
 # ────────────────────────────────────────────────────────────────────────────
 # 一个任务 = N 个触发器 + N 个行为；任意触发器命中即按顺序执行所有行为
 # ────────────────────────────────────────────────────────────────────────────
+
+# ── server 段（可选；不写则用下面的默认值）─────────────────────────────────
+# 第一次启动时 admin_token 自动生成并回写到这里。
+[server]
+host = "127.0.0.1"
+port = 8765
+admin_token = ""              # 留空表示自动生成；打印在日志里
+action_timeout_seconds = 30
+offline_policy = "queue"      # queue | drop | error（远程动作客户端离线时的策略）
 #
 # 行为模板可访问的命名空间（在 message_template / publish_event.payload 中用 "{...}" 引用）：
 #
@@ -146,3 +155,53 @@ until = "2026-12-31 23:59"
 [[tasks.actions]]
 type = "custom"
 path = "examples.user_actions.print_context"
+
+
+# ── 任务 5：API 触发 + 飞书通知 ─────────────────────────────────────────────
+# webhook 风格接入：外部服务 POST 到 /trigger/<token> 就能触发。
+# 首次加载时 anotiflow 会自动给缺失 token 的 api 触发器签发一个并回写到本文件。
+[[tasks]]
+name = "webhook_demo"
+enabled = false
+
+[[tasks.triggers]]
+name = "incoming_webhook"
+type = "api"
+# token = "trg_xxxxxxxxxxxxxxxxxxxx"   # 留空自动签发；可在 Web UI 的 Tokens 面板复制
+
+[[tasks.actions]]
+type = "publish_event"
+event = "webhook.incoming"
+[tasks.actions.payload]
+from = "{trigger.payload[source]}"
+at = "{trigger.fired_at}"
+
+
+# ── 任务 6：远程自定义动作 ─────────────────────────────────────────────────
+# 动作逻辑跑在另一台机器 / 另一个 venv 的客户端进程里，宿主进程不再负责执行。
+# 客户端代码参见 examples/remote_client.py：
+#
+#   from anotiflow import RemoteAction
+#   action = RemoteAction("ws://host:8765", token="<下面的 token>")
+#   @action.handler
+#   def handle(ctx): ...
+#   action.run()
+#
+# token 也会自动签发，可以在 Web UI 复制 SDK 代码片段（已把 token 填好）。
+[[tasks]]
+name = "remote_action_demo"
+enabled = false
+
+[[tasks.triggers]]
+type = "interval"
+unit = "seconds"
+every = 10
+
+[[tasks.actions]]
+type = "custom"
+remote = true
+# token = "act_xxxxxxxxxxxxxxxxxxxx"   # 留空自动签发
+wait = true                   # true=等待客户端回包（阻塞）；false=fire-and-forget
+timeout_seconds = 30
+offline_policy = "queue"      # 客户端未上线时：queue 堆积 / drop 丢弃 / error 抛错
+publish_on_success = "remote_action_demo.done"
