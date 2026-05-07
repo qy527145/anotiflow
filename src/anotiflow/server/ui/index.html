@@ -442,7 +442,27 @@ function actionFields(a, idx) {
 
       ${type==='dingtalk' ? `
         ${labelEl('title','消息标题',false)}
-        ${textInput({ scope:'ac', idx, k:'title', value:a.title||'', placeholder:'钉钉 Markdown 通知的标题', onchange:'onActionChange(this)' })}
+        ${textInput({ scope:'ac', idx, k:'title', value:a.title||'', placeholder:'Markdown 模式下的面板标题；text 模式可不填', onchange:'onActionChange(this)' })}
+
+        ${labelEl('msgtype','消息类型',false)}
+        ${selectEl({ scope:'ac', idx, k:'msgtype', value:a.msgtype||'text', options:[
+          { v:'text',     label:'text —— 纯文本',     desc:'最常用；message_template 直接作为文本展示' },
+          { v:'markdown', label:'markdown —— 富文本', desc:'message_template 支持钉钉 markdown 语法；title 作为面板标题' },
+        ], onchange:'onActionChange(this)' })}
+
+        ${labelEl('at_mobiles','@ 手机号列表',false)}
+        ${textInput({ scope:'ac', idx, k:'at_mobiles', value:Array.isArray(a.at_mobiles)?a.at_mobiles.join(','):(a.at_mobiles||''), placeholder:'例如 13800138000,13900139000 或 {trigger.payload[mobiles]}', onchange:'onActionChangeAtList(this)' })}
+        <div class="hint">用 <code>,</code> <code>;</code> 或空白分隔；支持 <code>{trigger.payload[xxx]}</code> 模板。机器人需在群里且开启了「@手机号」对应的安全策略。</div>
+
+        ${labelEl('at_user_ids','@ 用户 userid 列表',false)}
+        ${textInput({ scope:'ac', idx, k:'at_user_ids', value:Array.isArray(a.at_user_ids)?a.at_user_ids.join(','):(a.at_user_ids||''), placeholder:'例如 user1,user2 或 {trigger.payload[uids]}', onchange:'onActionChangeAtList(this)' })}
+        <div class="hint">钉钉的 userid（不是手机号），需企业内部应用机器人才支持。可与 at_mobiles 共存。</div>
+
+        ${labelEl('at_all','是否 @ 所有人',false)}
+        ${selectEl({ scope:'ac', idx, k:'at_all', value:String(!!a.at_all), options:[
+          { v:'false', label:'false —— 不 @ 所有人' },
+          { v:'true',  label:'true —— @ 所有人',  desc:'机器人需要"群可见所有人"权限；与 at_mobiles 互斥时优先生效' },
+        ], onchange:'onActionChange(this)' })}
       ` : ''}
 
       ${labelEl('message_template','消息模板',true)}
@@ -554,11 +574,27 @@ action = RemoteAction("${wsScheme}://${host}:${port}", token="${token}")
 
 @action.handler
 def my_action(ctx):
-    # ctx.task.config / ctx.trigger.config / ctx.trigger.payload / ctx.trigger.fired_at
+    # ctx 提供：
+    #   ctx.task.name / ctx.task.config           当前任务名 + 任务级配置
+    #   ctx.trigger.name / ctx.trigger.kind       命中的触发器
+    #   ctx.trigger.config                        触发器级配置
+    #   ctx.trigger.fired_at                      触发时刻 "YYYY-MM-DD HH:MM:SS"
+    #   ctx.trigger.payload                       业务载荷（事件/api 触发携带的 dict）
+    #   ctx.publish(event, payload)               反向广播事件到服务端 EventBus
+    #                                              下游订阅同名事件的 event 触发器会被触发
     print(f"fired: task={ctx.task.name} trigger={ctx.trigger.name} payload={ctx.trigger.payload}")
+
+    # 示例：根据业务结果向服务端 EventBus 广播事件，串联其他任务
+    if ctx.trigger.payload.get("alert"):
+        ctx.publish("biz.alert", {
+            "from_task": ctx.task.name,
+            "at": ctx.trigger.fired_at,
+            "detail": "something bad happened",
+        })
+
     return {"ok": True}
 
-action.run()   # blocks
+action.run()   # 阻塞；自动断线指数回退重连
 `;
 }
 
@@ -608,6 +644,18 @@ function onActionChange(el, rerender) {
   }
   a[k] = v;
   if (rerender) render();
+}
+function onActionChangeAtList(el) {
+  // at_mobiles / at_user_ids：UI 输入字符串，后端期望 list（或字符串模板）。
+  // 规则：含 {  视为模板，整段透传字符串；否则按 ,;\s 拆成 list。
+  const idx = +el.dataset.ac;
+  const k = el.dataset.k;
+  const task = currentTask();
+  const a = task.actions[idx];
+  const raw = (el.value || '').trim();
+  if (!raw) { delete a[k]; return; }
+  if (raw.includes('{')) { a[k] = raw; return; }
+  a[k] = raw.split(/[,;\s]+/).filter(Boolean);
 }
 function onActionTypeChange(el) {
   const idx = +el.dataset.ac;

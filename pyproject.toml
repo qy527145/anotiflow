@@ -1,6 +1,6 @@
 [project]
 name = "anotiflow"
-version = "0.2.1"
+version = "0.2.2"
 description = "可扩展的任务调度通知框架：触发器 + 行为插件 + 事件总线 + Web 控制台 + 远程动作 SDK"
 readme = "README.md"
 authors = [
