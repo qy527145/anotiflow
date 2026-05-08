@@ -20,7 +20,7 @@
 - **Web 控制台** — 单文件 HTML，可视化管理任务/触发器/动作；改动落盘 TOML，文件改动实时生效，两路等价
 - **配置即代码 + 实时同步** — TOML 是事实源，watchdog 监听文件变化自动 rebind；UI 与文件双向同步、hash 抑制回环
 - **链式联动** — `EventBus.publish(event, payload)` 与 `EventTrigger` 配对；远程动作回包成功还可经 `publish_on_success` 串入事件总线
-- **统一令牌系统** — admin / action / trigger 三类 scope；`<config_dir>/.anotiflow/tokens.json` 持久化；为后续 MCP / Skill / CLI 接入预留 scope 扩展点
+- **统一令牌系统** — admin / action / trigger 三类 scope，全部内联存放在 `config.toml` 中；缺失时自动签发，把整个配置发给同事即可完整复刻服务
 - **工程细节** — loguru 日志、任务启用/禁用、行为级异常捕获、SIGINT/SIGTERM 优雅关闭、UI 改动原子落盘、远程客户端断线指数回退重连
 
 ## 安装
@@ -255,7 +255,7 @@ anotiflow/
 │   │   ├── scheduler.py           # 旧版主循环（已被 Engine 取代，文件保留）
 │   │   ├── engine.py              # 运行时核心：装配/绑定/热重载
 │   │   ├── config_store.py        # 配置单一事实源 + 文件 watcher + 原子落盘
-│   │   ├── token_registry.py      # 统一令牌签发/校验/吊销
+│   │   ├── token_index.py         # 从 config 派生的内存令牌索引（仅校验，不落盘）
 │   │   ├── api_trigger_hub.py     # API 触发器注册中心
 │   │   └── remote_broker.py       # 远程动作分发（WS 通道 + 派发表）
 │   ├── triggers/
@@ -312,5 +312,5 @@ uv run python -m anotiflow
 - **Python 下限**：从 3.8 抬到 3.9（FastAPI 要求）。
 - **配置兼容**：旧的 `interval` / `event` 触发器、`feishu` / `dingtalk` / `publish_event` / `custom (path)` 动作配置完全兼容，**无需改动**即可升级。
 - **新增**：`[server]` 段（自动生成）、`[[tasks.triggers]] type="api"`、`[[tasks.actions]] type="custom" remote=true`。
-- **令牌**：admin / action / trigger token 都存放在 `<config_dir>/.anotiflow/tokens.json`，不要将该文件提交版本库。
+- **令牌**：admin / action / trigger token 全部直接内联在 `config.toml` 里。轮换/吊销 = 在 UI 或 TOML 中清空对应字段，下次保存时会自动签发新值。把 `config.toml` 发给别人就能完整复刻服务，不再有副本文件需要管理。
 - **TOML 注释**：UI 改动会通过 `tomli_w` 写回，注释会丢失。建议把长注释放到 README 或者只通过 UI 编辑配置。

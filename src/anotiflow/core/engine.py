@@ -1,7 +1,7 @@
 """Engine —— 运行时核心。
 
 职责：
-  - 持有 ConfigStore / TokenRegistry / RemoteBroker / ApiTriggerHub
+  - 持有 ConfigStore / TokenIndex / RemoteBroker / ApiTriggerHub
   - 装配 Task[]，bind 全部触发器
   - reload(new_raw) 时：先校验（build_tasks 不抛 → 通过），再粗粒度全解绑+全重绑
   - 启动 schedule 主循环线程（用于 IntervalTrigger）
@@ -22,6 +22,7 @@ import schedule
 from loguru import logger
 
 from anotiflow.core.loader import build_tasks
+from anotiflow.core.token_index import generate as _gen_token
 from anotiflow.task import Task
 from anotiflow.triggers.base import Trigger
 
@@ -29,20 +30,20 @@ if TYPE_CHECKING:
     from anotiflow.core.api_trigger_hub import ApiTriggerHub
     from anotiflow.core.config_store import ConfigStore
     from anotiflow.core.remote_broker import RemoteBroker
-    from anotiflow.core.token_registry import TokenRegistry
+    from anotiflow.core.token_index import TokenIndex
 
 
 class Engine:
     def __init__(
         self,
         config_store: "ConfigStore",
-        token_registry: "TokenRegistry",
+        token_index: "TokenIndex",
         remote_broker: "RemoteBroker",
         api_hub: "ApiTriggerHub",
         tick_seconds: float = 1.0,
     ) -> None:
         self.config_store = config_store
-        self.tokens = token_registry
+        self.tokens = token_index
         self.broker = remote_broker
         self.api_hub = api_hub
         self.tick_seconds = tick_seconds
@@ -61,9 +62,10 @@ class Engine:
         initial = self.config_store.current()
         # 把 token 自动签发也跑一遍（首次启动时配置里可能就缺 token）
         if self._mutate_for_tokens(initial):
-            # 触发一次 system 路径回写
+            # 触发一次 system 路径回写（apply 内部会重建 token 索引 + rebind）
             self.config_store.apply(initial, source="system")
         else:
+            self.tokens.rebuild(initial)
             self._rebind_from_raw(initial)
 
         # 启动 schedule 主循环
@@ -86,33 +88,36 @@ class Engine:
 
     # ---- ConfigStore 注入的 hook ----
     def _mutate_for_tokens(self, new_raw: dict[str, Any]) -> bool:
-        """给缺 token 的 api 触发器和 remote 自定义动作自动签发 token。返回是否有修改。"""
+        """给缺 token 的 api 触发器和 remote 自定义动作自动签发 token。返回是否有修改。
+
+        Token 直接写回 config，不再有独立存储。轮换/吊销 = 在 config 中改/清空字段。
+        """
         mutated = False
         for ti, task in enumerate(new_raw.get("tasks", []) or []):
             task_name = task.get("name") or f"task_{ti}"
             for ki, trig in enumerate(task.get("triggers", []) or []):
                 if trig.get("type") == "api" and not trig.get("token"):
-                    tok = self.tokens.issue("trigger", subject=f"task:{task_name}/triggers/{ki}", label=f"{task_name}.triggers[{ki}]")
-                    trig["token"] = tok.id
+                    tid = _gen_token("trigger")
+                    trig["token"] = tid
                     mutated = True
-                    logger.info(f"auto-issued trigger token for task={task_name!r} trigger#{ki}: {tok.id}")
+                    logger.info(f"auto-issued trigger token for task={task_name!r} trigger#{ki}: {tid}")
             for ai, act in enumerate(task.get("actions", []) or []):
                 if act.get("type") == "custom" and act.get("remote") and not act.get("token"):
-                    tok = self.tokens.issue("action", subject=f"task:{task_name}/actions/{ai}", label=f"{task_name}.actions[{ai}]")
-                    act["token"] = tok.id
+                    tid = _gen_token("action")
+                    act["token"] = tid
                     mutated = True
-                    logger.info(f"auto-issued action token for task={task_name!r} action#{ai}: {tok.id}")
+                    logger.info(f"auto-issued action token for task={task_name!r} action#{ai}: {tid}")
         # server.admin_token 也保证存在
         server = new_raw.setdefault("server", {})
         if not server.get("admin_token"):
-            tok = self.tokens.issue("admin", subject="server", label="admin")
-            server["admin_token"] = tok.id
+            tid = _gen_token("admin")
+            server["admin_token"] = tid
             mutated = True
-            logger.warning(f"auto-issued admin token: {tok.id}  (open Web UI with this in 'X-Admin-Token' header or '?admin_token=...')")
+            logger.warning(f"auto-issued admin token: {tid}  (open Web UI with this in 'X-Admin-Token' header or '?admin_token=...')")
         return mutated
 
     def _on_config_apply(self, new_raw: dict[str, Any]) -> None:
-        """ConfigStore 在落盘前回调；做校验 + rebind。"""
+        """ConfigStore 在落盘前回调；做校验 + rebind + 重建 token 索引。"""
         # build_tasks 抛错就直接抛出，ConfigStore.apply 会让 UI 端拿到 400
         new_tasks = build_tasks(new_raw)
         # 校验 task name 唯一
@@ -120,8 +125,9 @@ class Engine:
         dup = {n for n in names if names.count(n) > 1}
         if dup:
             raise ValueError(f"duplicate task names: {dup}")
-        # 校验通过 → 实际 rebind（这里如果失败属于运行期问题，ConfigStore 已经更新内存；
-        # 因此先尝试 bind 新的再 unbind 旧的更安全。但为简化，先粗粒度全切换）
+        # 重建 token 索引（先于 rebind：让任何同步进入的请求立即用上新 token 集）
+        self.tokens.rebuild(new_raw)
+        # 校验通过 → 实际 rebind
         self._unbind_all()
         self._tasks = new_tasks
         self._bind_all()

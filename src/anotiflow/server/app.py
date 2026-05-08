@@ -1,6 +1,6 @@
 """FastAPI 应用装配。
 
-与 Engine / ConfigStore / TokenRegistry / Broker / ApiTriggerHub 解耦，
+与 Engine / ConfigStore / TokenIndex / Broker / ApiTriggerHub 解耦，
 所有依赖通过 build_app() 参数注入。
 """
 
@@ -10,17 +10,16 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
 from loguru import logger
 
 from anotiflow.core.api_trigger_hub import ApiTriggerHub
 from anotiflow.core.config_store import ConfigStore
 from anotiflow.core.remote_broker import RemoteBroker
-from anotiflow.core.token_registry import TokenRegistry
+from anotiflow.core.token_index import TokenIndex
 from anotiflow.server.auth import make_admin_dependency
 from anotiflow.server.routes_config import make_router as make_config_router
-from anotiflow.server.routes_tokens import make_router as make_tokens_router
 from anotiflow.server.routes_trigger_api import make_router as make_trigger_router
 from anotiflow.server.ws_remote_action import make_router as make_ws_router
 
@@ -33,7 +32,7 @@ UI_DIR = Path(__file__).parent / "ui"
 def build_app(
     *,
     config_store: ConfigStore,
-    tokens: TokenRegistry,
+    tokens: TokenIndex,
     api_hub: ApiTriggerHub,
     broker: RemoteBroker,
     engine: "Engine",
@@ -51,7 +50,6 @@ def build_app(
     admin_protected = [admin_dep]
 
     app.include_router(make_config_router(config_store), dependencies=admin_protected)
-    app.include_router(make_tokens_router(tokens), dependencies=admin_protected)
 
     # token-only 路由（不走 admin）
     app.include_router(make_trigger_router(api_hub, tokens))

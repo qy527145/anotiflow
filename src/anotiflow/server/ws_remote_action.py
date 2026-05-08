@@ -16,10 +16,10 @@ from loguru import logger
 
 from anotiflow.core.event_bus import bus
 from anotiflow.core.remote_broker import RemoteBroker
-from anotiflow.core.token_registry import TokenRegistry
+from anotiflow.core.token_index import TokenIndex
 
 
-def make_router(broker: RemoteBroker, tokens: TokenRegistry) -> APIRouter:
+def make_router(broker: RemoteBroker, tokens: TokenIndex) -> APIRouter:
     r = APIRouter()
 
     @r.websocket("/ws/{scope}/{token}")
@@ -27,8 +27,7 @@ def make_router(broker: RemoteBroker, tokens: TokenRegistry) -> APIRouter:
         if scope not in ("actions",):
             await websocket.close(code=1008)  # policy violation
             return
-        tok = tokens.verify(token, "action")
-        if not tok:
+        if not tokens.verify(token, "action"):
             await websocket.close(code=4401)  # custom: unauthorized
             return
 

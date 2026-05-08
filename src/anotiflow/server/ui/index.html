@@ -96,7 +96,6 @@
   <span class="muted" id="server-info"></span>
   <span class="grow"></span>
   <button onclick="reloadAll()">⟳ 刷新</button>
-  <button onclick="showTokens()">🔑 Tokens</button>
   <button onclick="logout()">退出</button>
 </header>
 <main>
@@ -322,8 +321,19 @@ function renderTriggerCard(tr, idx) {
       </div>
       ${triggerFields(tr, idx)}
       ${type === 'api' ? renderApiTriggerHelp(tr) : ''}
+      ${labelEl('触发器级自定义字段','JSON 形式；模板里用 {trigger.config[xxx]} 引用',false)}
+      <textarea data-tr="${idx}" data-k="__extras" placeholder='{"biz_key": "value"}' onchange="onTriggerExtrasChange(this)">${escapeHtml(JSON.stringify(extractExtras(tr, knownTriggerKeys(type)), null, 2))}</textarea>
+      <div class="hint">未在表单上展示的字段都放这里，会原样写入 <code>[[tasks.triggers]]</code>，并通过 <code>{trigger.config[xxx]}</code> 在模板里访问。</div>
     </div>
   `;
+}
+
+function knownTriggerKeys(type) {
+  const common = ['type', 'name'];
+  if (type === 'interval') return [...common, 'unit', 'every', 'at', 'to', 'until'];
+  if (type === 'event')    return [...common, 'event'];
+  if (type === 'api')      return [...common, 'token'];
+  return common;
 }
 
 function renderApiTriggerHelp(tr) {
@@ -625,10 +635,11 @@ function onTriggerChange(el, rerender) {
   const task = currentTask();
   const tr = task.triggers[idx];
   const v = coerce(el.value);
-  // 切换 type 时重置字段，避免残留字段污染配置
+  // 切换 type 时重置字段，避免残留字段污染配置；但保留用户填写的自定义业务字段
   if (k === 'type' && v !== tr.type) {
     const old = tr;
-    const reset = { type: v };
+    const extras = extractExtras(old, knownTriggerKeys(old.type));
+    const reset = { type: v, ...extras };
     if (old.name) reset.name = old.name;
     if (v === 'interval') { reset.unit = 'seconds'; reset.every = 5; }
     if (v === 'event')    { reset.event = ''; }
@@ -644,6 +655,24 @@ function onTriggerChange(el, rerender) {
     else if (tr.every === undefined) tr.every = 1;
   }
   if (rerender) render(); else saveLocal(task);
+}
+function onTriggerExtrasChange(el) {
+  const idx = +el.dataset.tr;
+  const task = currentTask();
+  const tr = task.triggers[idx];
+  let extras;
+  try { extras = JSON.parse(el.value || '{}'); }
+  catch (e) { flash('err', '触发器自定义字段 JSON 非法: ' + e.message); return; }
+  if (extras === null || typeof extras !== 'object' || Array.isArray(extras)) {
+    flash('err', '触发器自定义字段必须是 JSON 对象');
+    return;
+  }
+  const known = knownTriggerKeys(tr.type);
+  for (const k of Object.keys(tr)) {
+    if (!known.includes(k)) delete tr[k];
+  }
+  for (const [k, v] of Object.entries(extras)) tr[k] = v;
+  saveLocal(task);
 }
 function onActionChange(el, rerender) {
   const idx = +el.dataset.ac;
@@ -979,34 +1008,6 @@ function flash(type, msg) {
   el.className = type === 'ok' ? 'ok-msg' : 'err-msg';
   el.textContent = msg;
   setTimeout(() => { el.textContent = ''; el.className=''; }, 3000);
-}
-
-// ---- tokens panel ----
-async function showTokens() {
-  try {
-    const list = await api('GET', '/api/tokens?include_revoked=false');
-    const html = `
-      <h2>Tokens</h2>
-      ${list.length ? list.map(t => `
-        <div class="card">
-          <div class="card-header">
-            <span class="tag">${t.scope}</span>
-            <span>${escapeHtml(t.label || t.subject)}</span>
-            <span class="grow"></span>
-            <button class="btn btn-danger" style="font-size:0.7rem;" onclick="revokeToken('${t.id}')">吊销</button>
-          </div>
-          <div class="token-box">${escapeHtml(t.id)}</div>
-          <div class="muted">${escapeHtml(t.created_at)}  ·  subject=${escapeHtml(t.subject)}</div>
-        </div>
-      `).join('') : '<div class="empty">暂无 token</div>'}
-      <button class="btn" onclick="render()">← 返回任务</button>
-    `;
-    document.getElementById('detail').innerHTML = html;
-  } catch (e) { alert(e.message); }
-}
-async function revokeToken(id) {
-  if (!confirm('吊销后任何客户端将无法连接。确定？')) return;
-  try { await api('DELETE', `/api/tokens/${id}`); showTokens(); } catch (e) { alert(e.message); }
 }
 
 // ---- util ----

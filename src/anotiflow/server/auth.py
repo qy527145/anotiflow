@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from fastapi import Depends, HTTPException, Request, status
 
-from anotiflow.core.token_registry import TokenRegistry
+from anotiflow.core.token_index import TokenIndex
 
 
 def _extract_admin_token(req: Request) -> str | None:
@@ -29,19 +29,18 @@ def _extract_admin_token(req: Request) -> str | None:
     return None
 
 
-def make_admin_guard(tokens: TokenRegistry):
+def make_admin_guard(tokens: TokenIndex):
     def _guard(req: Request) -> None:
         tid = _extract_admin_token(req)
         if not tid:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="admin token required")
-        tok = tokens.verify(tid, "admin")
-        if not tok:
+        if not tokens.verify(tid, "admin"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid admin token")
 
     return _guard
 
 
-def make_admin_dependency(tokens: TokenRegistry):
+def make_admin_dependency(tokens: TokenIndex):
     """FastAPI 依赖项：用于 router 级或路由级 dependencies=[Depends(...)]。"""
     guard = make_admin_guard(tokens)
 

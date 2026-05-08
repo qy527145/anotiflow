@@ -22,7 +22,7 @@ from anotiflow.core.api_trigger_hub import hub as _api_hub
 from anotiflow.core.config_store import ConfigStore
 from anotiflow.core.engine import Engine
 from anotiflow.core.remote_broker import broker as _broker
-from anotiflow.core.token_registry import TokenRegistry
+from anotiflow.core.token_index import TokenIndex
 from anotiflow.logging_setup import setup_logging
 from anotiflow.server.app import build_app
 
@@ -41,9 +41,8 @@ def main(argv: list[str] | None = None) -> int:
     config_path = Path(args.config).expanduser().resolve()
     config_store = ConfigStore(config_path)
 
-    # token 存储与 config 同目录的隐藏子目录
-    token_path = config_path.parent / ".anotiflow" / "tokens.json"
-    tokens = TokenRegistry(token_path)
+    # token 索引：从 config.toml 派生，不再有独立存储文件
+    tokens = TokenIndex()
 
     # 加载配置（不存在则生成空模板）
     try:
@@ -54,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
 
     engine = Engine(
         config_store=config_store,
-        token_registry=tokens,
+        token_index=tokens,
         remote_broker=_broker,
         api_hub=_api_hub,
     )
