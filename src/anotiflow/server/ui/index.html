@@ -18,7 +18,7 @@
   .btn-danger:hover { background:var(--err); color:white; }
   main { flex:1; display:grid; grid-template-columns: 280px 1fr 420px; gap:1px; background:var(--border); overflow:hidden; }
   section { background:var(--bg); overflow-y:auto; padding:1rem; }
-  section h2 { font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin:0 0 0.75rem 0; }
+  section h2 { font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin:0 0 0.75rem 0; display:flow-root; }
   .task-item { padding:0.6rem 0.75rem; margin-bottom:0.3rem; border:1px solid var(--border); border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:0.5rem; }
   .task-item:hover { border-color:var(--fg); }
   .task-item.active { background:var(--panel); border-color:var(--accent); }
@@ -42,10 +42,19 @@
   .group-header .chevron { width:0.6rem; display:inline-block; color:var(--muted); transition:transform 0.15s; }
   .group.collapsed .chevron { transform:rotate(-90deg); }
   .group.collapsed .group-body { display:none; }
-  .group-name { flex:1; font-weight:600; color:var(--fg); font-size:0.85rem; }
-  .group-count { color:var(--muted); font-size:0.75rem; }
-  .group-rename-btn { background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:0.75rem; padding:0 0.3rem; }
+  .group-name { flex:1 1 0; min-width:0; font-weight:600; color:var(--fg); font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .group-count { color:var(--muted); font-size:0.75rem; flex-shrink:0; }
+  .group-rename-btn { background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:0.75rem; padding:0 0.3rem; flex-shrink:0; }
   .group-rename-btn:hover { color:var(--fg); }
+  /* drag & drop */
+  .task-item[draggable="true"] { cursor:grab; }
+  .task-item[draggable="true"]:active { cursor:grabbing; }
+  .task-item.dragging { opacity:0.35; }
+  .task-item.drop-before { box-shadow:inset 0 2px 0 0 var(--accent); }
+  .task-item.drop-after  { box-shadow:inset 0 -2px 0 0 var(--accent); }
+  .group.drop-target { background:rgba(46,160,67,0.06); border-radius:6px; outline:1px dashed var(--accent); outline-offset:-1px; }
+  .group.drop-target > .group-header { border-bottom-color:var(--accent); }
+  .group-body.empty-hint { min-height:2rem; border:1px dashed var(--border); border-radius:6px; color:var(--muted); font-size:0.75rem; display:flex; align-items:center; justify-content:center; padding:0.4rem; }
   /* "indeterminate" 开关：中间横杠 */
   .toggle input:indeterminate + .slider { background:var(--warn); }
   .toggle input:indeterminate + .slider::before { left:9px; background:var(--bg); }
@@ -165,7 +174,10 @@ function render() {
       const safeGroup = escapeAttr(groupName);
       const isCollapsed = !!collapsed[groupName];
       blocks.push(`
-        <div class="group ${isCollapsed?'collapsed':''}" data-group="${safeGroup}">
+        <div class="group ${isCollapsed?'collapsed':''}" data-group="${safeGroup}"
+             ondragover="onGroupDragOver(event,'${safeGroup}')"
+             ondragleave="onGroupDragLeave(event)"
+             ondrop="onGroupDrop(event,'${safeGroup}')">
           <div class="group-header" onclick="toggleGroupCollapse('${safeGroup}')">
             <span class="chevron">▼</span>
             <label class="toggle" title="${allOn?'禁用整组':allOff?'启用整组':'全部启用'}" onclick="event.stopPropagation()">
@@ -210,8 +222,16 @@ function taskItemHtml(t) {
   const active = state.selected === t.name ? 'active' : '';
   const enabled = t.enabled !== false;
   const safeName = escapeAttr(t.name);
-  return `<div class="task-item ${active} ${enabled?'':'disabled'}" onclick="selectTask('${safeName}')">
-    <label class="toggle" title="${enabled?'禁用任务':'启用任务'}" onclick="event.stopPropagation()">
+  return `<div class="task-item ${active} ${enabled?'':'disabled'}" draggable="true"
+    data-task-name="${safeName}"
+    onclick="selectTask('${safeName}')"
+    ondragstart="onTaskDragStart(event,'${safeName}')"
+    ondragend="onTaskDragEnd(event)"
+    ondragover="onTaskDragOver(event)"
+    ondragleave="onTaskDragLeave(event)"
+    ondrop="onTaskDrop(event,'${safeName}')"
+    title="拖拽可移动到其他分组或重新排序">
+    <label class="toggle" title="${enabled?'禁用任务':'启用任务'}" onclick="event.stopPropagation()" draggable="true" ondragstart="event.preventDefault(); event.stopPropagation();">
       <input type="checkbox" ${enabled?'checked':''} onchange="toggleTaskEnabled('${safeName}', this)" />
       <span class="slider"></span>
     </label>
@@ -802,6 +822,119 @@ function cssEscape(s) {
   // 用于 querySelector 拼接
   return String(s).replace(/(["\\])/g, '\\$1');
 }
+
+// ---- drag & drop ----
+const drag = { name: null, fromGroup: null };
+
+function onTaskDragStart(ev, name) {
+  drag.name = name;
+  const task = (state.raw.tasks || []).find(t => t.name === name);
+  drag.fromGroup = (task && task.group) || 'default';
+  ev.dataTransfer.effectAllowed = 'move';
+  try { ev.dataTransfer.setData('text/plain', name); } catch(_) {}
+  ev.currentTarget.classList.add('dragging');
+}
+function onTaskDragEnd(ev) {
+  document.querySelectorAll('.task-item.dragging').forEach(el => el.classList.remove('dragging'));
+  clearDropHints();
+  drag.name = null; drag.fromGroup = null;
+}
+function onTaskDragOver(ev) {
+  if (!drag.name) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  ev.dataTransfer.dropEffect = 'move';
+  const el = ev.currentTarget;
+  if (el.dataset.taskName === drag.name) return;
+  const rect = el.getBoundingClientRect();
+  const after = (ev.clientY - rect.top) > rect.height / 2;
+  clearDropHints();
+  el.classList.add(after ? 'drop-after' : 'drop-before');
+  // 同时高亮所属分组
+  const group = el.closest('.group');
+  if (group) group.classList.add('drop-target');
+}
+function onTaskDragLeave(ev) {
+  ev.currentTarget.classList.remove('drop-before', 'drop-after');
+}
+function onTaskDrop(ev, targetName) {
+  if (!drag.name || drag.name === targetName) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  const el = ev.currentTarget;
+  const rect = el.getBoundingClientRect();
+  const after = (ev.clientY - rect.top) > rect.height / 2;
+  const group = el.closest('.group');
+  const targetGroup = group ? group.dataset.group : 'default';
+  moveTask(drag.name, targetGroup, { anchor: targetName, after });
+  onTaskDragEnd(ev);
+}
+function onGroupDragOver(ev, groupName) {
+  if (!drag.name) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'move';
+  ev.currentTarget.classList.add('drop-target');
+}
+function onGroupDragLeave(ev) {
+  // 只有离开整个 .group 容器时才清除
+  if (ev.currentTarget.contains(ev.relatedTarget)) return;
+  ev.currentTarget.classList.remove('drop-target');
+}
+function onGroupDrop(ev, groupName) {
+  if (!drag.name) return;
+  ev.preventDefault();
+  // 若 drop 已经被 task-item 消费过，就跳过
+  if (ev.defaultPrevented && ev._handled) return;
+  moveTask(drag.name, groupName, { anchor: null });
+  onTaskDragEnd(ev);
+}
+function clearDropHints() {
+  document.querySelectorAll('.task-item.drop-before,.task-item.drop-after')
+    .forEach(el => el.classList.remove('drop-before','drop-after'));
+  document.querySelectorAll('.group.drop-target')
+    .forEach(el => el.classList.remove('drop-target'));
+}
+
+async function moveTask(name, targetGroup, { anchor, after } = {}) {
+  const tasks = state.raw.tasks || [];
+  const srcIdx = tasks.findIndex(t => t.name === name);
+  if (srcIdx < 0) return;
+  const task = tasks[srcIdx];
+  const prevGroup = task.group || 'default';
+  // 更新 group 字段
+  if (targetGroup === 'default') delete task.group;
+  else task.group = targetGroup;
+
+  // 重新排列 tasks：先移除，再插到目标位置
+  tasks.splice(srcIdx, 1);
+  let insertAt;
+  if (anchor) {
+    const anchorIdx = tasks.findIndex(t => t.name === anchor);
+    insertAt = anchorIdx < 0 ? tasks.length : anchorIdx + (after ? 1 : 0);
+  } else {
+    // 丢到分组空白处 → 追加到该分组末尾
+    let last = -1;
+    tasks.forEach((t, i) => { if ((t.group || 'default') === targetGroup) last = i; });
+    insertAt = last + 1;
+    if (last < 0) insertAt = tasks.length;
+  }
+  tasks.splice(insertAt, 0, task);
+
+  // 乐观渲染
+  render();
+  try {
+    const res = await api('PUT', '/api/config', state.raw);
+    state.raw = res;
+    const movedGroup = targetGroup === 'default' ? '未分组' : targetGroup;
+    if (prevGroup !== targetGroup) flashGlobal(`已移动「${name}」到分组「${movedGroup}」`);
+    else flashGlobal(`已调整「${name}」顺序`);
+    render();
+  } catch (e) {
+    flashGlobal(`移动失败：${e.message}`);
+    await reloadAll();
+  }
+}
+
 function flashGlobal(msg) {
   // 顶部居中浮层提示，2 秒消失
   let el = document.getElementById('global-flash');
@@ -930,7 +1063,9 @@ async function reloadAll() {
   try {
     state.raw = await api('GET', '/api/config');
     state.serverInfo = state.raw.server || {};
-    document.getElementById('server-info').textContent = `${state.serverInfo.host||'?'}:${state.serverInfo.port||'?'}`;
+    const host = state.serverInfo.host || location.hostname || '?';
+    const port = state.serverInfo.port || location.port || (location.protocol === 'https:' ? 443 : 80);
+    document.getElementById('server-info').textContent = `${host}:${port}`;
     render();
   } catch (e) {
     document.getElementById('detail').innerHTML = `<div class="err-msg">加载失败: ${escapeHtml(e.message)}</div>`;
