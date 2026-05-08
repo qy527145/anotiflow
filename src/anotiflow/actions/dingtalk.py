@@ -115,6 +115,11 @@ class DingtalkNotify(NotifyAction):
         return f"{url}&timestamp={ts}&sign={sign}"
 
     def _post(self, message: str, *, title: str, at_mobiles: list[str], at_user_ids: list[str]) -> None:
+        # 钉钉拒绝空 content，给个保底
+        if not message or not message.strip():
+            logger.warning("[dingtalk] empty message, using placeholder to avoid 400202")
+            message = title or "(empty notification)"
+
         at = {"isAtAll": self.at_all}
         if at_mobiles:
             at["atMobiles"] = at_mobiles
