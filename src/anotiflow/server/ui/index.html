@@ -88,6 +88,38 @@
   .preset-btn { background:transparent; border:1px dashed var(--border); color:var(--muted); padding:0.2rem 0.55rem; border-radius:3px; font-size:0.75rem; cursor:pointer; }
   .preset-btn:hover { border-style:solid; border-color:var(--accent); color:var(--fg); }
   optgroup { color:var(--muted); font-style:normal; }
+  /* 任务搜索框 */
+  .task-search-row { margin-bottom:0.6rem; position:relative; }
+  .task-search-row input { padding-right:1.8rem; font-size:0.82rem; }
+  .task-search-row .clear-btn { position:absolute; right:0.4rem; top:50%; transform:translateY(-50%); background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:0.9rem; padding:0 0.2rem; display:none; }
+  .task-search-row.has-query .clear-btn { display:block; }
+  .task-search-row .clear-btn:hover { color:var(--fg); }
+  .hotkey-chip { font-family:var(--mono); font-size:0.7rem; background:var(--bg); color:var(--muted); border:1px solid var(--border); padding:0 0.3rem; border-radius:3px; }
+  /* 拖拽句柄 */
+  .drag-handle { color:var(--muted); font-size:0.7rem; cursor:grab; opacity:0; transition:opacity 0.15s; user-select:none; flex-shrink:0; letter-spacing:-1px; }
+  .task-item:hover .drag-handle { opacity:0.6; }
+  .task-item.dragging .drag-handle { opacity:1; }
+  /* 编辑区 sticky 工具栏 */
+  .task-toolbar { position:sticky; top:-1rem; z-index:10; background:var(--bg); margin:-1rem -1rem 0.75rem; padding:0.7rem 1rem; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; }
+  .task-toolbar h2 { margin:0; flex:1 1 auto; min-width:0; font-size:0.9rem; text-transform:none; letter-spacing:0; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .task-toolbar .dirty-dot { color:var(--warn); font-size:0.9rem; visibility:hidden; margin-left:-0.3rem; }
+  .task-toolbar.dirty .dirty-dot { visibility:visible; }
+  /* 右侧预览高亮 */
+  #toml-preview span[data-toml-task] { display:block; transition:background 0.25s; border-radius:4px; }
+  #toml-preview span[data-toml-task].flash { background:rgba(46,160,67,0.18); }
+  #toml-preview span[data-toml-task].selected { border-left:2px solid var(--accent); padding-left:0.3rem; margin-left:-0.5rem; }
+  /* 帮助浮层 */
+  #help-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:10000; align-items:center; justify-content:center; }
+  #help-overlay.open { display:flex; }
+  #help-overlay .dialog { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:1.25rem 1.5rem; max-width:520px; width:90%; box-shadow:0 10px 40px rgba(0,0,0,0.5); }
+  #help-overlay h3 { margin:0 0 0.75rem 0; font-size:1rem; display:flex; align-items:center; gap:0.5rem; }
+  #help-overlay h3 .grow { flex:1; }
+  #help-overlay h3 button { background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:1rem; }
+  #help-overlay h3 button:hover { color:var(--fg); }
+  #help-overlay table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+  #help-overlay td { padding:0.3rem 0.2rem; border-bottom:1px solid var(--border); vertical-align:top; }
+  #help-overlay td:first-child { width:130px; }
+  #help-overlay kbd { font-family:var(--mono); font-size:0.75rem; background:var(--bg); color:var(--fg); border:1px solid var(--border); border-bottom-width:2px; padding:0.1rem 0.4rem; border-radius:3px; }
 </style>
 </head>
 <body>
@@ -96,30 +128,58 @@
   <span class="muted" id="server-info"></span>
   <span class="grow"></span>
   <button onclick="reloadAll()">⟳ 刷新</button>
+  <button onclick="showHelp()" title="快捷键 (?)">⌨ 快捷键</button>
   <button onclick="logout()">退出</button>
 </header>
 <main>
   <section id="col-tasks">
     <h2>Tasks
       <span style="float:right; display:inline-flex; gap:0.3rem;">
+        <button class="btn" style="font-size:0.75rem;" onclick="toggleAllGroups()" title="折叠/展开全部分组">⇕</button>
         <button class="btn" style="font-size:0.75rem;" onclick="newGroup()" title="新建分组">+ 分组</button>
         <button class="btn btn-primary" style="font-size:0.75rem;" onclick="newTask()" title="新建任务">+ 任务</button>
       </span>
     </h2>
+    <div class="task-search-row" id="task-search-row">
+      <input id="task-search" placeholder="搜索任务名 / 分组… (按 / 聚焦)" oninput="onSearchInput(this)" />
+      <button class="clear-btn" onclick="clearSearch()" title="清除">✕</button>
+    </div>
     <div id="task-list"></div>
   </section>
   <section id="col-detail">
     <div id="detail"></div>
   </section>
   <section id="col-preview">
-    <h2>config.toml 预览</h2>
+    <h2>config.toml 预览
+      <span style="float:right; display:inline-flex; gap:0.3rem;">
+        <button class="btn" style="font-size:0.75rem;" onclick="copyToml()" title="复制到剪贴板">⧉ 复制</button>
+        <button class="btn" style="font-size:0.75rem;" onclick="downloadToml()" title="下载 config.toml">⤓ 下载</button>
+      </span>
+    </h2>
     <pre id="toml-preview"></pre>
   </section>
 </main>
 
+<div id="help-overlay" onclick="if(event.target===this) hideHelp()">
+  <div class="dialog">
+    <h3>⌨ 快捷键
+      <span class="grow"></span>
+      <button onclick="hideHelp()" title="关闭 (Esc)">✕</button>
+    </h3>
+    <table>
+      <tr><td><kbd>/</kbd></td><td>聚焦左侧任务搜索框</td></tr>
+      <tr><td><kbd>?</kbd></td><td>打开 / 关闭本帮助</td></tr>
+      <tr><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>删除当前选中的任务（需先点击选中）</td></tr>
+      <tr><td><kbd>⌘/Ctrl</kbd> + <kbd>S</kbd></td><td>保存当前编辑的任务</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>取消编辑 / 关闭浮层 / 清空搜索</td></tr>
+    </table>
+    <div class="hint" style="margin-top:0.8rem;">在文本输入框内按 Delete/Backspace/斜杠/问号 走浏览器原生行为，不会触发快捷键。</div>
+  </div>
+</div>
+
 <script>
 // ---- state ----
-const state = { raw: null, selected: null, serverInfo: {} };
+const state = { raw: null, selected: null, serverInfo: {}, search: '', dirty: false };
 
 function getAdminToken() {
   const m = document.cookie.match(/(?:^|; )admin_token=([^;]+)/);
@@ -151,12 +211,18 @@ async function api(method, url, body) {
 function render() {
   const listEl = document.getElementById('task-list');
   const tasks = (state.raw && state.raw.tasks) || [];
+  const q = (state.search || '').trim().toLowerCase();
+  const visible = q
+    ? tasks.filter(t => (t.name || '').toLowerCase().includes(q) || (t.group || 'default').toLowerCase().includes(q))
+    : tasks;
   if (!tasks.length) {
     listEl.innerHTML = '<div class="empty">还没有任务<br/><small>点击右上角 + 新建</small></div>';
+  } else if (!visible.length) {
+    listEl.innerHTML = `<div class="empty">没有匹配「${escapeHtml(state.search)}」的任务<br/><small>按 Esc 清除搜索</small></div>`;
   } else {
     // 按 group 聚合（保留任务原顺序）
     const groups = new Map();
-    for (const t of tasks) {
+    for (const t of visible) {
       const g = (t.group || 'default').toString();
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g).push(t);
@@ -171,7 +237,8 @@ function render() {
       const allOff = enabledCount === 0;
       const isDefault = groupName === 'default';
       const safeGroup = escapeAttr(groupName);
-      const isCollapsed = !!collapsed[groupName];
+      // 搜索时强制展开匹配的分组，便于查看
+      const isCollapsed = q ? false : !!collapsed[groupName];
       blocks.push(`
         <div class="group ${isCollapsed?'collapsed':''}" data-group="${safeGroup}"
              ondragover="onGroupDragOver(event,'${safeGroup}')"
@@ -214,7 +281,13 @@ function render() {
     detailEl.innerHTML = renderTaskEditor(task);
   }
 
-  document.getElementById('toml-preview').textContent = rawToToml(state.raw);
+  renderTomlPreview();
+}
+
+function renderTomlPreview() {
+  const el = document.getElementById('toml-preview');
+  if (!el) return;
+  el.innerHTML = rawToTomlHtml(state.raw, state.selected);
 }
 
 function taskItemHtml(t) {
@@ -230,6 +303,7 @@ function taskItemHtml(t) {
     ondragleave="onTaskDragLeave(event)"
     ondrop="onTaskDrop(event,'${safeName}')"
     title="拖拽可移动到其他分组或重新排序">
+    <span class="drag-handle" title="拖拽">⋮⋮</span>
     <label class="toggle" title="${enabled?'禁用任务':'启用任务'}" onclick="event.stopPropagation()" draggable="true" ondragstart="event.preventDefault(); event.stopPropagation();">
       <input type="checkbox" ${enabled?'checked':''} onchange="toggleTaskEnabled('${safeName}', this)" />
       <span class="slider"></span>
@@ -248,9 +322,15 @@ function renderTaskEditor(task) {
     .map(t => t.group || 'default')));
   const curGroup = task.group || 'default';
   return `
-    <h2>Task: ${escapeHtml(task.name)}
-      <button class="btn btn-danger" style="float:right; font-size:0.75rem;" onclick="deleteTask('${escapeAttr(task.name)}')">删除任务</button>
-    </h2>
+    <div class="task-toolbar${state.dirty?' dirty':''}">
+      <h2 title="${escapeAttr(task.name)}">Task: ${escapeHtml(task.name)}</h2>
+      <span class="dirty-dot" title="有未保存改动">●</span>
+      <span id="save-msg" style="margin-right:0.4rem; font-size:0.78rem;"></span>
+      <button class="btn" onclick="duplicateTask()" title="基于此任务复制一份">⎘ 复制</button>
+      <button class="btn btn-primary" onclick="saveTask()" title="保存（⌘/Ctrl+S）">保存</button>
+      <button class="btn" onclick="cancelEdit()" title="取消（Esc）">取消</button>
+      <button class="btn btn-danger" onclick="deleteTask('${escapeAttr(task.name)}')" title="删除任务（Delete）">删除</button>
+    </div>
     <div class="card">
       <div class="row">
         <div>${labelEl('name','任务名（同一配置内必须唯一）',true)}
@@ -285,12 +365,6 @@ function renderTaskEditor(task) {
       <button class="btn" style="float:right; font-size:0.75rem;" onclick="addAction()">+ 添加动作</button>
     </h2>
     ${actions.map((a, i) => renderActionCard(a, i)).join('') || '<div class="muted">（无动作）</div>'}
-
-    <div style="margin-top:1rem; display:flex; gap:0.5rem;">
-      <button class="btn btn-primary" onclick="saveTask()">保存</button>
-      <button class="btn" onclick="selectTask(null)">取消</button>
-      <span id="save-msg" class="grow" style="align-self:center;"></span>
-    </div>
   `;
 }
 
@@ -518,7 +592,7 @@ function actionFields(a, idx) {
       return `
         ${labelEl('token','远程动作令牌',false)}
         <div class="token-box">${escapeHtml(tok || '（保存后自动签发）')}</div>
-        <div class="hint">客户端用此 token 通过 WebSocket 接入；可在 Tokens 面板吊销后重发。</div>
+        <div class="hint">客户端用此 token 通过 WebSocket 接入；删除任务或保存后会自动失效 / 重新签发。</div>
 
         ${labelEl('timeout_seconds','等待超时（秒）',false)}
         ${numberInput({ scope:'ac', idx, k:'timeout_seconds', value:a.timeout_seconds??30, min:1, max:600, placeholder:'30', onchange:'onActionChange(this, true)' })}
@@ -591,6 +665,7 @@ function presetInterval(idx, preset) {
   const tr = task.triggers[idx];
   ['unit','every','to','at','until'].forEach(k => delete tr[k]);
   Object.assign(tr, preset);
+  markDirty();
   render();
 }
 
@@ -644,6 +719,7 @@ function onTriggerChange(el, rerender) {
     if (v === 'interval') { reset.unit = 'seconds'; reset.every = 5; }
     if (v === 'event')    { reset.event = ''; }
     task.triggers[idx] = reset;
+    markDirty();
     render();
     return;
   }
@@ -654,6 +730,7 @@ function onTriggerChange(el, rerender) {
     if (isWeekday) { delete tr.every; delete tr.to; }
     else if (tr.every === undefined) tr.every = 1;
   }
+  markDirty();
   if (rerender) render(); else saveLocal(task);
 }
 function onTriggerExtrasChange(el) {
@@ -672,6 +749,7 @@ function onTriggerExtrasChange(el) {
     if (!known.includes(k)) delete tr[k];
   }
   for (const [k, v] of Object.entries(extras)) tr[k] = v;
+  markDirty();
   saveLocal(task);
 }
 function onActionChange(el, rerender) {
@@ -688,11 +766,13 @@ function onActionChange(el, rerender) {
     const keep = { type:'custom', remote: !!v };
     if (v) { keep.wait = true; keep.timeout_seconds = 30; keep.offline_policy = 'queue'; }
     task.actions[idx] = keep;
+    markDirty();
     render();
     return;
   }
   a[k] = v;
-  if (rerender) render();
+  markDirty();
+  if (rerender) render(); else saveLocal(task);
 }
 function onActionChangeAtList(el) {
   // at_mobiles / at_user_ids：UI 输入字符串，后端期望 list（或字符串模板）。
@@ -702,15 +782,17 @@ function onActionChangeAtList(el) {
   const task = currentTask();
   const a = task.actions[idx];
   const raw = (el.value || '').trim();
-  if (!raw) { delete a[k]; return; }
-  if (raw.includes('{')) { a[k] = raw; return; }
+  if (!raw) { delete a[k]; markDirty(); return; }
+  if (raw.includes('{')) { a[k] = raw; markDirty(); return; }
   a[k] = raw.split(/[,;\s]+/).filter(Boolean);
+  markDirty();
 }
 function onActionTypeChange(el) {
   const idx = +el.dataset.ac;
   const task = currentTask();
   // 切 type 时重置该 action（保留 type），避免残留字段污染配置
   task.actions[idx] = { type: el.value };
+  markDirty();
   render();
 }
 function coerce(v) {
@@ -725,7 +807,7 @@ function currentTask() {
 }
 function saveLocal(task) {
   // 轻量同步（仅预览更新，不落服务端）
-  document.getElementById('toml-preview').textContent = rawToToml(state.raw);
+  renderTomlPreview();
 }
 
 // ---- task-level actions ----
@@ -733,26 +815,31 @@ function addTrigger() {
   const task = currentTask();
   task.triggers = task.triggers || [];
   task.triggers.push({ type:'interval', unit:'seconds', every:10 });
+  markDirty();
   render();
 }
 function removeTrigger(idx) {
   const task = currentTask();
   task.triggers.splice(idx, 1);
+  markDirty();
   render();
 }
 function addAction() {
   const task = currentTask();
   task.actions = task.actions || [];
   task.actions.push({ type:'publish_event', event:'hello' });
+  markDirty();
   render();
 }
 function removeAction(idx) {
   const task = currentTask();
   task.actions.splice(idx, 1);
+  markDirty();
   render();
 }
 async function saveTask() {
   const task = currentTask();
+  if (!task) return;
   const nameEl = document.getElementById('t-name');
   const enabledEl = document.getElementById('t-enabled');
   const groupEl = document.getElementById('t-group');
@@ -774,6 +861,7 @@ async function saveTask() {
   try {
     const res = await api('PUT', '/api/config', state.raw);
     state.raw = res;
+    state.dirty = false;
     flash('ok','已保存');
     render();
   } catch (e) { flash('err', e.message); }
@@ -784,8 +872,49 @@ async function deleteTask(name) {
     const res = await api('DELETE', `/api/tasks/${encodeURIComponent(name)}`);
     state.raw = res;
     state.selected = null;
+    state.dirty = false;
     render();
   } catch (e) { alert(e.message); }
+}
+function cancelEdit() {
+  if (state.dirty) {
+    if (!confirm('当前任务有未保存改动，确定取消并丢弃改动？')) return;
+    state.dirty = false;
+    state.selected = null;
+    reloadAll();
+    return;
+  }
+  state.selected = null;
+  render();
+}
+function duplicateTask() {
+  const cur = currentTask();
+  if (!cur) return;
+  // 先把当前编辑表单里的字段同步进去（避免复制出来的是上一次保存的版本）
+  const nameEl = document.getElementById('t-name');
+  if (nameEl) cur.name = nameEl.value.trim() || cur.name;
+  const baseName = cur.name + '_copy';
+  let suggest = baseName;
+  let i = 1;
+  while ((state.raw.tasks || []).some(t => t.name === suggest)) {
+    suggest = baseName + i++;
+  }
+  const finalName = prompt('新任务名：', suggest);
+  if (!finalName || !finalName.trim()) return;
+  const trimmed = finalName.trim();
+  if ((state.raw.tasks || []).some(t => t.name === trimmed)) { alert('name 已存在'); return; }
+  const clone = JSON.parse(JSON.stringify(cur));
+  clone.name = trimmed;
+  // 移除自动签发的 token，让服务端重新签发
+  for (const tr of clone.triggers || []) if (tr.type === 'api') delete tr.token;
+  for (const a of clone.actions || []) if (a.type === 'custom' && a.remote) delete a.token;
+  // 插入到原任务之后
+  const idx = state.raw.tasks.findIndex(t => t.name === cur.name);
+  state.raw.tasks.splice(idx >= 0 ? idx + 1 : state.raw.tasks.length, 0, clone);
+  state.selected = trimmed;
+  markDirty();
+  render();
+  flashGlobal(`已复制为「${trimmed}」（保存后生效）`);
 }
 async function toggleTaskEnabled(name, checkboxEl) {
   // 即时反馈：先把 checkbox 置 disabled，避免连击
@@ -991,6 +1120,7 @@ function newTask(group) {
   if (group && group !== 'default') task.group = group;
   state.raw.tasks.push(task);
   state.selected = name;
+  markDirty();
   render();
 }
 function newGroup() {
@@ -1001,7 +1131,27 @@ function newGroup() {
   // 立刻在分组下新建一个任务（空分组无法持久化；user 可稍后改 group 字段）
   newTask(g);
 }
-function selectTask(name) { state.selected = name; render(); }
+function selectTask(name) {
+  if (state.dirty && state.selected && state.selected !== name) {
+    if (!confirm('当前任务有未保存改动，确定切换并丢弃改动？')) return;
+    state.dirty = false;
+  }
+  state.selected = name;
+  render();
+  if (name) scrollPreviewToTask(name);
+}
+function scrollPreviewToTask(name) {
+  const span = document.querySelector(`#toml-preview span[data-toml-task="${cssEscape(name)}"]`);
+  if (!span) return;
+  const section = document.getElementById('col-preview');
+  if (!section) return;
+  const sRect = section.getBoundingClientRect();
+  const tRect = span.getBoundingClientRect();
+  // 把 span 顶部对齐到 section 顶部下方 60px
+  section.scrollTop += (tRect.top - sRect.top) - 60;
+  span.classList.add('flash');
+  setTimeout(() => span.classList.remove('flash'), 900);
+}
 function flash(type, msg) {
   const el = document.getElementById('save-msg');
   if (!el) { alert(msg); return; }
@@ -1013,6 +1163,152 @@ function flash(type, msg) {
 // ---- util ----
 function escapeHtml(s) { return String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function escapeAttr(s) { return escapeHtml(s); }
+
+// ---- new feature helpers ----
+function markDirty() {
+  state.dirty = true;
+  const tb = document.querySelector('.task-toolbar');
+  if (tb) tb.classList.add('dirty');
+  renderTomlPreview();
+}
+function onSearchInput(el) {
+  state.search = el.value;
+  document.getElementById('task-search-row').classList.toggle('has-query', !!el.value);
+  render();
+}
+function clearSearch() {
+  state.search = '';
+  const inp = document.getElementById('task-search');
+  if (inp) inp.value = '';
+  document.getElementById('task-search-row').classList.remove('has-query');
+  render();
+}
+function toggleAllGroups() {
+  const collapsed = JSON.parse(localStorage.getItem('group-collapsed') || '{}');
+  const groups = new Set();
+  for (const t of (state.raw && state.raw.tasks) || []) groups.add(t.group || 'default');
+  if (!groups.size) return;
+  // 若已经全部折叠，则全部展开；否则全部折叠
+  const allCollapsed = [...groups].every(g => collapsed[g]);
+  const target = !allCollapsed;
+  const next = { ...collapsed };
+  for (const g of groups) next[g] = target;
+  localStorage.setItem('group-collapsed', JSON.stringify(next));
+  render();
+}
+function copyToml() {
+  const text = rawToToml(state.raw);
+  if (!text) { flashGlobal('config 为空，无内容可复制'); return; }
+  const ok = () => flashGlobal('已复制 config.toml 到剪贴板');
+  const fail = (e) => { flashGlobal('复制失败：' + (e?.message || e)); fallbackCopy(text); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(ok, fail);
+  } else {
+    if (fallbackCopy(text)) ok(); else fail(new Error('剪贴板 API 不可用'));
+  }
+}
+function fallbackCopy(text) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed; top:-9999px;';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (_) { return false; }
+}
+function downloadToml() {
+  const text = rawToToml(state.raw);
+  if (!text) { flashGlobal('config 为空，无内容可下载'); return; }
+  const blob = new Blob([text], { type: 'application/toml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'config.toml';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  flashGlobal('已下载 config.toml');
+}
+function showHelp() {
+  document.getElementById('help-overlay').classList.add('open');
+}
+function hideHelp() {
+  document.getElementById('help-overlay').classList.remove('open');
+}
+function isHelpOpen() {
+  return document.getElementById('help-overlay').classList.contains('open');
+}
+function isEditableTarget(el) {
+  if (!el) return false;
+  const tag = (el.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+  if (el.isContentEditable) return true;
+  return false;
+}
+
+// ---- global keybindings ----
+document.addEventListener('keydown', (e) => {
+  // ⌘/Ctrl + S 始终拦截（即便焦点在表单内，这才是常见的"快速保存"操作）
+  if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+    e.preventDefault();
+    if (state.selected) saveTask();
+    return;
+  }
+  // Esc：先关帮助 → 再清搜索（搜索框聚焦时） → 再取消编辑
+  if (e.key === 'Escape') {
+    if (isHelpOpen()) { e.preventDefault(); hideHelp(); return; }
+    if (e.target && e.target.id === 'task-search') {
+      // 搜索框内 Esc：清空查询并失焦
+      if (state.search) { e.preventDefault(); clearSearch(); }
+      e.target.blur();
+      return;
+    }
+    if (isEditableTarget(e.target)) {
+      // 让原生处理（失焦）
+      e.target.blur();
+      return;
+    }
+    if (state.selected) { e.preventDefault(); cancelEdit(); }
+    return;
+  }
+  // 表单内的字符键交给浏览器
+  if (isEditableTarget(e.target)) return;
+
+  if (e.key === '/') {
+    e.preventDefault();
+    const inp = document.getElementById('task-search');
+    if (inp) { inp.focus(); inp.select(); }
+    return;
+  }
+  if (e.key === '?') {
+    e.preventDefault();
+    isHelpOpen() ? hideHelp() : showHelp();
+    return;
+  }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && state.selected) {
+    e.preventDefault();
+    deleteTask(state.selected);
+    return;
+  }
+});
+
+// 切换 / 关闭页面时若有未保存改动，给一次确认机会
+window.addEventListener('beforeunload', (e) => {
+  if (state.dirty) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// 事件代理：编辑面板内任意输入都标 dirty（覆盖 t-name / t-enabled / t-group / t-extras 等没有 onchange 的字段）
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.closest && e.target.closest('#detail')) markDirty();
+});
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.closest && e.target.closest('#detail')) markDirty();
+});
+
 function extractExtras(obj, omit) {
   const o = {};
   for (const k in obj) if (!omit.includes(k)) o[k] = obj[k];
@@ -1050,6 +1346,43 @@ function rawToToml(raw) {
   }
   return lines.join('\n');
 }
+function rawToTomlHtml(raw, highlight) {
+  // 与 rawToToml 语义相同，但每个 [[tasks]] 块包成 <span data-toml-task="..."> 以支持滚动定位
+  if (!raw) return '';
+  const parts = [];
+  if (raw.server) {
+    let s = '[server]\n';
+    for (const [k,v] of Object.entries(raw.server)) s += `${k} = ${tomlVal(v)}\n`;
+    s += '\n';
+    parts.push(escapeHtml(s));
+  }
+  for (const t of (raw.tasks || [])) {
+    let s = '[[tasks]]\n';
+    for (const [k,v] of Object.entries(t)) {
+      if (k === 'triggers' || k === 'actions') continue;
+      s += `${k} = ${tomlVal(v)}\n`;
+    }
+    for (const tr of (t.triggers||[])) {
+      s += '\n[[tasks.triggers]]\n';
+      for (const [k,v] of Object.entries(tr)) s += `${k} = ${tomlVal(v)}\n`;
+    }
+    for (const a of (t.actions||[])) {
+      s += '\n[[tasks.actions]]\n';
+      for (const [k,v] of Object.entries(a)) {
+        if (k === 'payload' && typeof v === 'object') continue;
+        s += `${k} = ${tomlVal(v)}\n`;
+      }
+      if (a.payload && typeof a.payload === 'object') {
+        s += '[tasks.actions.payload]\n';
+        for (const [k,v] of Object.entries(a.payload)) s += `${k} = ${tomlVal(v)}\n`;
+      }
+    }
+    s += '\n';
+    const cls = highlight && highlight === t.name ? ' class="selected"' : '';
+    parts.push(`<span data-toml-task="${escapeAttr(t.name)}"${cls}>${escapeHtml(s)}</span>`);
+  }
+  return parts.join('');
+}
 function tomlVal(v) {
   if (v === undefined || v === null) return '""';
   if (typeof v === 'string') return `"${v.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,'\\n')}"`;
@@ -1064,10 +1397,16 @@ async function reloadAll() {
   try {
     state.raw = await api('GET', '/api/config');
     state.serverInfo = state.raw.server || {};
+    state.dirty = false;
+    // 若 selected 任务在重载后已不存在，回到空白态
+    if (state.selected && !(state.raw.tasks || []).some(t => t.name === state.selected)) {
+      state.selected = null;
+    }
     const host = state.serverInfo.host || location.hostname || '?';
     const port = state.serverInfo.port || location.port || (location.protocol === 'https:' ? 443 : 80);
     document.getElementById('server-info').textContent = `${host}:${port}`;
     render();
+    if (state.selected) scrollPreviewToTask(state.selected);
   } catch (e) {
     document.getElementById('detail').innerHTML = `<div class="err-msg">加载失败: ${escapeHtml(e.message)}</div>`;
   }
